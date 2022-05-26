@@ -1,6 +1,7 @@
 # implement histogan model
 from re import S
 import torch
+from utils import histogram_feature
 
 class ResidualBlock(torch.nn.Module):
     def __init__(self, inp_dim, out_dim):
@@ -64,16 +65,15 @@ class ModDemodConv3x3(torch.nn.Module):
     def forward(self, x, style):
         style = style.view(style.size(0),1,-1,1,1)
         modulated_weight = style * self.weight
-        # print(modulated_weight.size())
         sigma = torch.sqrt(modulated_weight.square().sum(dim=(2,3,4), keepdim=True) +1e-3)
         # print(sigma.size())
         demodulated_weight = modulated_weight / sigma
-        # print(demodulated_weight.size())
         out = self.convolution(x, demodulated_weight)
         return out     
 
 class ModConv1x1(torch.nn.Module):
     def __init__(self, in_channels, out_channels=3):
+        super().__init__()
         self.weight = torch.nn.Parameter(torch.randn(out_channels, in_channels, 1, 1))
 
     def convolution(self, inp, weight):
@@ -81,7 +81,7 @@ class ModConv1x1(torch.nn.Module):
         # Taken from https://pytorch.org/docs/stable/generated/torch.nn.Unfold.html
         # Changed such that it can work with batch of styles
         # After the operation the output feature maps' spatial size should be the same as the input, therefore padding=1
-        inp_unf = torch.nn.functional.unfold(inp, (3, 3), padding=(1,1)) 
+        inp_unf = torch.nn.functional.unfold(inp, (1, 1)) 
         out_unf = inp_unf.transpose(1, 2).matmul(weight.view(weight.size(0), weight.size(1), -1).transpose(1, 2)).transpose(1, 2)
         out = torch.nn.functional.fold(out_unf, (inp.size(2), inp.size(3)), (1, 1))
         return out    
@@ -92,54 +92,24 @@ class ModConv1x1(torch.nn.Module):
         out = self.convolution(x, modulated_weight)
         return out 
 
-class Histogan(torch.nn.Module):
-    def __init__(self, network_capacity=16):
-        super().__init__()
-        latent_mapping_list = []
-        latent_mapping_list.append(torch.nn.Linear(512, 1024), 
-                                   torch.nn.LeakyReLU(0.2),
-                                   torch.nn.Linear(1024, 512),
-                                   torch.nn.LeakyReLU(0.2))
-        hist_projection_list = []
-        hist_projection_list.append(torch.nn.Linear(512, 1024), 
-                                    torch.nn.LeakyReLU(0.2),
-                                    torch.nn.Linear(1024, 512),
-                                    torch.nn.LeakyReLU(0.2)) 
-        for i in range(6):
-            if i == 5:
-                latent_mapping_list.append(torch.nn.Linear(512, 512))
-                hist_projection_list.append(torch.nn.Linear(512, 512))
-            else:
-                latent_mapping_list.append(torch.nn.Linear(512, 512),
-                                           torch.nn.LeakyReLU(0.2))
-                hist_projection_list.append(torch.nn.Linear(512, 512),
-                                            torch.nn.LeakyReLU(0.2))
-
-        self.latent_mapping = torch.nn.Sequential(*latent_mapping_list)
-        self.hist_projection = torch.nn.Sequential(*hist_projection_list)
-        self.learned_const_inp = torch.nn.Parameter(torch.randn(4*network_capacity, 4, 4))
-        self.upsample = torch.nn.Upsample(scale_factor=2, mode="bilinear")
-
-
-
 class StyleGAN2Block(torch.nn.Module):
     # StyleGan2 Block depicted in Figure 2/A of HistoGAN paper
     # !!! NOT YET TESTED !!!  
-    def __init__(self, channel1, channel2, channel3): # these channel numbers should be decided soon
+    def __init__(self, input_channel_size, output_channel_size): # these channel numbers should be decided soon
         super().__init__()
-        self.affine_1 = torch.nn.Linear(512, channel1)
-        self.affine_2 = torch.nn.Linear(512, channel2)
-        self.affine_3 = torch.nn.Linear(512, channel3)
+        self.affine_1 = torch.nn.Linear(512, input_channel_size)
+        self.affine_2 = torch.nn.Linear(512, output_channel_size)
+        self.affine_3 = torch.nn.Linear(512, output_channel_size)
         # In stylegan2 paper, section B. Implementation Details/Generator redesign  
         # authors say that they used only single shared scaling factor for each feature map 
         # and they initiazlize the factor by 0
         self.noise_scaling_factor_1 = torch.nn.Parameter(torch.zeros((1)))
         self.noise_scaling_factor_2 = torch.nn.Parameter(torch.zeros((1))) 
-        self.md3x3_1 = ModDemodConv3x3(channel1, channel2)
-        self.md3x3_2 = ModDemodConv3x3(channel2, channel3)
-        self.m1x1 = ModConv1x1(channel3, 3)
-        self.bias_1 = torch.nn.Parameter(torch.zeros(channel2))
-        self.bias_2 = torch.nn.Parameter(torch.zeros(channel3))
+        self.md3x3_1 = ModDemodConv3x3(input_channel_size, output_channel_size)
+        self.md3x3_2 = ModDemodConv3x3(output_channel_size, output_channel_size)
+        self.m1x1 = ModConv1x1(output_channel_size, 3)
+        self.bias_1 = torch.nn.Parameter(torch.zeros(output_channel_size))
+        self.bias_2 = torch.nn.Parameter(torch.zeros(output_channel_size))
         self.lrelu = torch.nn.LeakyReLU(0.2)
 
 
@@ -163,6 +133,66 @@ class StyleGAN2Block(torch.nn.Module):
         out = self.lrelu(out)
         rgb_out = self.m1x1(out, style_3) # rgb_out should then be upsampled, for now left it out of this block
         return out, rgb_out
+
+class HistoGAN(torch.nn.Module):
+    def __init__(self, network_capacity=16, h=64, channel_sizes = [1024, 512, 512, 512, 256, 128, 64]):
+        super().__init__()
+        latent_mapping_list = []
+        latent_mapping_list.extend([torch.nn.Linear(512, 1024), 
+                                   torch.nn.LeakyReLU(0.2),
+                                   torch.nn.Linear(1024, 512),
+                                   torch.nn.LeakyReLU(0.2)])
+        hist_projection_list = []
+        hist_projection_list.extend([torch.nn.Linear(h*h*3, 1024), 
+                                    torch.nn.LeakyReLU(0.2),
+                                    torch.nn.Linear(1024, 512),
+                                    torch.nn.LeakyReLU(0.2)]) 
+        for i in range(6):
+            if i == 5:
+                latent_mapping_list.append(torch.nn.Linear(512, 512))
+                hist_projection_list.append(torch.nn.Linear(512, 512))
+            else:
+                latent_mapping_list.extend([torch.nn.Linear(512, 512),
+                                           torch.nn.LeakyReLU(0.2)])
+                hist_projection_list.extend([torch.nn.Linear(512, 512),
+                                            torch.nn.LeakyReLU(0.2)])
+
+        self.latent_mapping = torch.nn.Sequential(*latent_mapping_list)
+        self.hist_projection = torch.nn.Sequential(*hist_projection_list)
+        self.learned_const_inp = torch.nn.Parameter(torch.randn(4*network_capacity, 4, 4))
+        self.upsample = torch.nn.Upsample(scale_factor=2, mode="bilinear")
+        stylegan2_block_list = [] 
+        inp_size = 4 * network_capacity
+        for channel_size in channel_sizes:
+            stylegan2_block_list.append(StyleGAN2Block(inp_size, channel_size))
+            inp_size = channel_size
+        self.stylegan2_blocks = torch.nn.ModuleList(stylegan2_block_list)
+
+    def forward(self, z, target_img):
+        # noise input z, size: B, 512
+        B = z.size(0)
+        w = self.latent_mapping(z)
+        fm = self.learned_const_inp.unsqueeze(0).repeat(B, 1, 1, 1)
+        for i, stylegan2_block in enumerate(self.stylegan2_blocks[:-1]):
+            fm, rgb = stylegan2_block(fm, w)
+            fm = self.upsample(fm)
+            if i == 0:
+                rgb = self.upsample(rgb)
+                rgb_sum = rgb
+            else:
+                rgb_sum += rgb
+                rgb_sum = self.upsample(rgb_sum)
+        # histogram = histogram_feature(target_img) # histogram, size: B, 3, H=64, H=64
+        # hist_w = self.hist_projection(histogram.flatten(1))
+        # rgb, _ = stylegan2_block(fm, hist_w)
+        # rgb_sum += rgb
+        return rgb_sum # , histogram
+            
+
+
+
+
+
     
 
 
