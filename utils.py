@@ -1,7 +1,7 @@
 # implement utility functions for image processing
-from matplotlib.pyplot import hist
-import numpy as np
+import matplotlib.pyplot as plt
 import torch
+import gc
 
 # Generation of histogram origined from color constancy
 # Paper: Jonathan T. Barron, Convolutional Color Constancy, 2015, https://arxiv.org/pdf/1507.00410.pdf
@@ -97,11 +97,112 @@ def histogram_feature(img, h=64, hist_boundary=[-3, 3], fall_off = 0.02):
     
     return histogram
 
+## Below is improved version of histogram computation
+# First version is easy to understand however causes Ram explotion for high resolution
+
+def get_hist_c(ur, u, vr, v, i_y, fall_off):
+    rdiffu = torch.abs(ur - u)
+    rdiffv = torch.abs(vr - v)
+
+    # So far for k Eq. 3, 
+    # Inner absolute values for each pixel log-chrominance value with each bin of H(u,v,c)
+    # k has two parts multiplied thus implemented as k = k_u x k_v
+    rdiffu = 1 / (1 + torch.square(rdiffu/fall_off))
+
+    rk_v = 1 / (1 + torch.square(rdiffv/fall_off))
+
+    i_y = torch.unsqueeze(i_y, dim=2)
+
+
+    rdiffu = rdiffu*i_y
+    rdiffu = rdiffu.transpose(1, 2)
+    rdiffu = torch.bmm(rdiffu, rk_v)  # Compute intensity weighted impact of chrominance values
+
+    return rdiffu
+
+def histogram_feature_v2(img, h=64, hist_boundary=[-3, 3], fall_off = 0.02, device="cuda"):
+    img_flat = torch.reshape(img, (img.shape[0], img.shape[1], -1))  # reshape such that img_flat = M,3,N*N
+    
+    # Pixel intesities I_y at Eq. 2
+    eps = 1e-6  # prevent taking log of 0 valued pixels
+    i_y = torch.sqrt(torch.square(img_flat[:, 0]) + torch.square(img_flat[:, 1]) + torch.square(img_flat[:, 2]))
+    img += eps
+    log_r = torch.log(img_flat[:, 0])
+    log_g = torch.log(img_flat[:, 1])
+    log_b = torch.log(img_flat[:, 2])
+    
+    # u,v parameters for each channel
+    # each channel normalization values with respect to other two channels
+    ur = log_r - log_g
+    vr = log_r - log_b
+    ug = -ur
+    vg = -ur + vr
+    ub = -vr
+    vb = -vr + ur
+
+    u = torch.linspace(hist_boundary[0], hist_boundary[1], h)
+    u = torch.unsqueeze(u, dim=0)   # Make (h,) to (1, h) so that 
+                                    # for each element in ur there will 
+                                    # be difference with each u value.
+    v = torch.linspace(hist_boundary[0], hist_boundary[1], h)
+    v = torch.unsqueeze(v, dim=0)
+
+    ur = torch.unsqueeze(ur, dim=2) # Make each element an array it 
+                                    # Difference will be [N*N, 1] - [1,h] = [N*N, h]
+                                    # See broadcasting for further
+    ug = torch.unsqueeze(ug, dim=2) 
+    ub = torch.unsqueeze(ub, dim=2)
+    vr = torch.unsqueeze(vr, dim=2) 
+    vg = torch.unsqueeze(vg, dim=2) 
+    vb = torch.unsqueeze(vb, dim=2) 
+    
+    hist_r = get_hist_c(ur, u, vr, v, i_y, fall_off)
+    hist_g = get_hist_c(ug, u, vg, v, i_y, fall_off)
+    hist_b = get_hist_c(ub, u, vb, v, i_y, fall_off)
+
+    # For each channel of H(u,v,c) = H(u,v,R), H(u,v,G), H(u,v,B), k values are computed above
+    histogram = torch.stack([hist_r, hist_g, hist_b], dim=1)
+    sum_of_uvc = torch.sum(torch.sum(torch.sum(histogram, dim=3), dim=2), dim=1)
+    sum_of_uvc = torch.reshape(sum_of_uvc, (-1, 1, 1, 1))
+    histogram = histogram / sum_of_uvc
+    
+    return histogram
+
 def main():
-    batch = torch.rand((2, 3, 32, 32))
+    batch = torch.rand((8, 3, 256, 256))
     # img1 = torch.stack((r,g,b), dim=0)
     # img2 = torch.stack((r,g,b), dim=0)
     # batch = torch.stack((img1, img2), dim=0)
+
+    hist1 = histogram_feature_v2(batch)
+    # hist2 = histogram_feature(batch)
+
+    # print(torch.max(abs(hist1-hist2)))
+
+    # from PIL import Image
+    # import torchvision.transforms as transforms
+
+    # plt.figure()
+    # image = Image.open("face.jpg")
+    # # Define a transform to convert PIL 
+    # # image to a Torch tensor
+    # transform = transforms.Compose([
+    #     transforms.PILToTensor(),
+    #     # transforms.GaussianBlur(5),
+    # ])
+    
+    # # transform = transforms.PILToTensor()
+    # # Convert the PIL image to Torch tensor
+    # img_tensor = transform(image)
+    # img_tensor = torch.unsqueeze(img_tensor, dim=0)
+    # img_tensor = img_tensor.float()
+    # hist = histogram_feature(img_tensor)
+    # hist = hist.squeeze(dim=0)
+    # unloader = transforms.ToPILImage()
+    # hist_img = unloader(hist*300)
+    # plt.imshow(hist_img)
+    # plt.waitforbuttonpress()
+
 
 
 if __name__=="__main__": main()
