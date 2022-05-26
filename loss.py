@@ -6,40 +6,26 @@ import torch
 
 # See Eq. 5
 # g: generated image, d_score: scalar output of discriminator
-def generator_loss(g, d_score):
-    c_loss = hellinger_dist_loss(g)
+def generator_loss(g, d_score, hist_t):
+    c_loss = hellinger_dist_loss(g, hist_t)
     alpha = 2.0  # See Sec. 5.2 Training details
-    g_loss = d_score + alpha*c_loss
+    g_loss = torch.mean(d_score) - alpha*c_loss
     return -g_loss 
 
 def disc_loss(g_scores, r_scores):
-    return torch.mean(-torch.log(r_scores)) - torch.mean(torch.log(1-g_scores))
+    return torch.mean(-torch.log(torch.sigmoid(r_scores))) - torch.mean(torch.log(1-torch.sigmoid(g_scores)))
 
 # This is color matching loss, see Eq. 4
 # It takes histogram of generated and target
-def hellinger_dist_loss(g):
-    hist_g = utils.histogram_feature(g)  # Compute histogram feature of generated img
-
-    # Either read two images and compute hists
-    # Note loaded batch is 2*M hists
-    # Or use precomputed hists
-    # hist1 = torch.load()
-    # hist2 = torch.load()
-
-    # For testing the function
-    hist1 = torch.rand((2, 3, 64, 64))
-    hist2 = torch.rand((2, 3, 64, 64))
-
-    delta = torch.rand((g.shape[0],1))
-    delta = torch.unsqueeze(delta, dim=2)
-    delta = torch.unsqueeze(delta, dim=3)
-    
-    hist_t = delta*hist1 + (1-delta)*hist2
-    t_sqred = torch.square(hist_t)
-    g_sqred = torch.square(hist_g)
+def hellinger_dist_loss(g, hist_t):
+    hist_g = utils.histogram_feature_v2(g)  # Compute histogram feature of generated img
+    t_sqred = torch.sqrt(hist_t)
+    g_sqred = torch.sqrt(hist_g)
     diff = t_sqred - g_sqred
-    h_norm = torch.norm(torch.norm(torch.norm(diff, dim=3), dim=2), dim=1)
-    h_norm = h_norm * (torch.sqrt(torch.ones((g.shape[0]))*2))
+    h = torch.sum(torch.square(diff), dim=(1,2,3))
+    print(hist_t.min(), hist_g.min())
+    h_norm = torch.sqrt(h)
+    h_norm = h_norm * (torch.sqrt(torch.ones((g.shape[0]))/2))
     
     # Used mean reduction, other option is sum reduction
     h_norm = torch.mean(h_norm)

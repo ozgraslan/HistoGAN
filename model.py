@@ -1,7 +1,6 @@
 # implement histogan model
 from re import S
 import torch
-from utils import histogram_feature
 
 class ResidualBlock(torch.nn.Module):
     def __init__(self, inp_dim, out_dim):
@@ -21,11 +20,12 @@ class ResidualBlock(torch.nn.Module):
         return out
 
 class Discriminator(torch.nn.Module):
-    def __init__(self, num_res_block, output_channels):
+    def __init__(self, num_res_block=7, network_capacity=16):
         super().__init__()
         ## Discriminator architecture taken from Section 5.1. Details of Our Networks
         residual_block_layers = []
         in_dim = 3
+        output_channels = network_capacity
         for _ in range(num_res_block):
             residual_block_layers.append(ResidualBlock(in_dim, output_channels))
             in_dim = output_channels
@@ -58,6 +58,8 @@ class ModDemodConv3x3(torch.nn.Module):
         # Changed such that it can work with batch of styles
         # After the operation the output feature maps' spatial size should be the same as the input, therefore padding=1
         inp_unf = torch.nn.functional.unfold(inp, (3, 3), padding=(1,1)) 
+        # print(weight.view(weight.size(0), weight.size(1), -1).transpose(1, 2).size())
+        # print(inp_unf.transpose(1, 2).size())
         out_unf = inp_unf.transpose(1, 2).matmul(weight.view(weight.size(0), weight.size(1), -1).transpose(1, 2)).transpose(1, 2)
         out = torch.nn.functional.fold(out_unf, (inp.size(2), inp.size(3)), (1, 1))
         return out    
@@ -168,7 +170,7 @@ class HistoGAN(torch.nn.Module):
             inp_size = channel_size
         self.stylegan2_blocks = torch.nn.ModuleList(stylegan2_block_list)
 
-    def forward(self, z, target_img):
+    def forward(self, z, target_hist):
         # noise input z, size: B, 512
         B = z.size(0)
         w = self.latent_mapping(z)
@@ -182,19 +184,13 @@ class HistoGAN(torch.nn.Module):
             else:
                 rgb_sum += rgb
                 rgb_sum = self.upsample(rgb_sum)
-        # histogram = histogram_feature(target_img) # histogram, size: B, 3, H=64, H=64
-        # hist_w = self.hist_projection(histogram.flatten(1))
-        # rgb, _ = stylegan2_block(fm, hist_w)
-        # rgb_sum += rgb
-        return rgb_sum # , histogram
-            
-
-
-
-
-
+        # print("hello")
+        # print(target_hist.size())
+        hist_w = self.hist_projection(target_hist.flatten(1))
+        # print(hist_w.size())
+        _, rgb = self.stylegan2_blocks[-1](fm, hist_w)
+        # print(rgb.size(), rgb_sum.size())
+        rgb_sum += rgb
     
-
-
-
-
+        return rgb_sum
+    

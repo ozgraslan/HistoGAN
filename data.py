@@ -19,7 +19,7 @@ class AnimeFacesDataset(Dataset):
         return len(self.image_tensor_list)
 
     def __getitem__(self, index):
-        return self.transform(self.image_tensor_list[index])
+        return self.transform(self.image_tensor_list[index]).float()
 
 
 def main():
