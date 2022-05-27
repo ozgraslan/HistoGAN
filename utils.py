@@ -15,6 +15,7 @@ import gc
 # they are not mentioned in the paper.
 # Not mentioned in the paper but "sampling" is used to get img pixels of size h
 
+device = "cuda" if torch.cuda.is_available() else "cpu"
 def histogram_feature(img, h=64, hist_boundary=[-3, 3], fall_off = 0.02):
     img_flat = torch.reshape(img, (img.shape[0], img.shape[1], -1))  # reshape such that img_flat = M,3,N*N
     
@@ -120,7 +121,7 @@ def get_hist_c(ur, u, vr, v, i_y, fall_off):
 
     return rdiffu
 
-def histogram_feature_v2(img, h=64, hist_boundary=[-3, 3], fall_off = 0.02, device="cuda"):
+def histogram_feature_v2(img, h=64, hist_boundary=[-3, 3], fall_off = 0.02):
     img = img / 255.0  # Map (0, 255) --> (0, 1)
     eps = 1e-6  # prevent taking log of 0 valued pixels
     img += eps  # Inplace
@@ -142,11 +143,11 @@ def histogram_feature_v2(img, h=64, hist_boundary=[-3, 3], fall_off = 0.02, devi
     ub = -vr
     vb = -vr + ur
 
-    u = torch.linspace(hist_boundary[0], hist_boundary[1], h)
+    u = torch.linspace(hist_boundary[0], hist_boundary[1], h).to(device)
     u = torch.unsqueeze(u, dim=0)   # Make (h,) to (1, h) so that 
                                     # for each element in ur there will 
                                     # be difference with each u value.
-    v = torch.linspace(hist_boundary[0], hist_boundary[1], h)
+    v = torch.linspace(hist_boundary[0], hist_boundary[1], h).to(device)
     v = torch.unsqueeze(v, dim=0)
 
     ur = torch.unsqueeze(ur, dim=2) # Make each element an array it 

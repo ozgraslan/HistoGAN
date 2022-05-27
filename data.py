@@ -13,7 +13,7 @@ class AnimeFacesDataset(Dataset):
             for file in files:
                 path = os.path.join(root, file)
                 image = read_image(path)
-                self.image_tensor_list.append(image.to(device))
+                self.image_tensor_list.append(image)
 
     def __len__(self):
         return len(self.image_tensor_list)

@@ -7,13 +7,13 @@ import torch
 # See Eq. 5
 # g: generated image, d_score: scalar output of discriminator
 def generator_loss(g, d_score, hist_t):
-    c_loss = hellinger_dist_loss(g, hist_t)
-    alpha = 2.0  # See Sec. 5.2 Training details
-    g_loss = torch.mean(d_score) - alpha*c_loss
+    #c_loss = hellinger_dist_loss(g, hist_t)
+    #alpha = 2.0  # See Sec. 5.2 Training details
+    g_loss = torch.mean(torch.log(torch.sigmoid(d_score))) #- alpha*c_loss
     return -g_loss 
 
 def disc_loss(g_scores, r_scores):
-    return torch.mean(-torch.log(torch.sigmoid(r_scores))) - torch.mean(torch.log(1-torch.sigmoid(g_scores)))
+    return -torch.mean(torch.log(torch.sigmoid(r_scores))) - torch.mean(torch.log(1-torch.sigmoid(g_scores)))
 
 # This is color matching loss, see Eq. 4
 # It takes histogram of generated and target
@@ -23,7 +23,7 @@ def hellinger_dist_loss(g, hist_t):
     g_sqred = torch.sqrt(hist_g)
     diff = t_sqred - g_sqred
     h = torch.sum(torch.square(diff), dim=(1,2,3))
-    print(hist_t.min(), hist_g.min())
+    # print(hist_t.min(), hist_g.min())
     h_norm = torch.sqrt(h)
     h_norm = h_norm * (torch.sqrt(torch.ones((g.shape[0]))/2))
     

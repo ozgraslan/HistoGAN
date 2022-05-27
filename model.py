@@ -2,6 +2,8 @@
 from re import S
 import torch
 
+device = "cuda" if torch.cuda.is_available() else "cpu"
+
 class ResidualBlock(torch.nn.Module):
     def __init__(self, inp_dim, out_dim):
         super().__init__()
@@ -123,8 +125,8 @@ class StyleGAN2Block(torch.nn.Module):
         # in style gan2 paper each noise is tought as a N(0,I) image 
         # with same height and with as the feature map
         batch, channel, height, width = fm.size()  
-        noise_1 = torch.randn((batch, 1, height, width))
-        noise_2 = torch.randn((batch, 1, height, width))
+        noise_1 = torch.randn((batch, 1, height, width)).to(device)
+        noise_2 = torch.randn((batch, 1, height, width)).to(device)
         style_1 = self.affine_1(w)
         style_2 = self.affine_2(w)
         style_3 = self.affine_3(w)
@@ -175,22 +177,22 @@ class HistoGAN(torch.nn.Module):
         B = z.size(0)
         w = self.latent_mapping(z)
         fm = self.learned_const_inp.unsqueeze(0).repeat(B, 1, 1, 1)
-        for i, stylegan2_block in enumerate(self.stylegan2_blocks[:-1]):
+        # for i, stylegan2_block in enumerate(self.stylegan2_blocks[:-1]):
+        for i, stylegan2_block in enumerate(self.stylegan2_blocks):
             fm, rgb = stylegan2_block(fm, w)
             fm = self.upsample(fm)
             if i == 0:
                 rgb = self.upsample(rgb)
                 rgb_sum = rgb
+            elif i == len(self.stylegan2_blocks) -1 :
+                rgb_sum += rgb
             else:
                 rgb_sum += rgb
                 rgb_sum = self.upsample(rgb_sum)
-        # print("hello")
-        # print(target_hist.size())
-        hist_w = self.hist_projection(target_hist.flatten(1))
-        # print(hist_w.size())
-        _, rgb = self.stylegan2_blocks[-1](fm, hist_w)
-        # print(rgb.size(), rgb_sum.size())
-        rgb_sum += rgb
-    
+
+        # hist_w = self.hist_projection(target_hist.flatten(1))
+        # _, rgb = self.stylegan2_blocks[-1](fm, hist_w)
+        # rgb_sum += rgb
+        # print("sum size:", rgb_sum.size())
         return rgb_sum
     
