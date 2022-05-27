@@ -121,7 +121,7 @@ def get_hist_c(ur, u, vr, v, i_y, fall_off):
 
     return rdiffu
 
-def histogram_feature_v2(img, h=64, hist_boundary=[-3, 3], fall_off = 0.02):
+def histogram_feature_v2(img, h=64, hist_boundary=[-3, 3], fall_off = 0.02, device="cuda"):
     img = img / 255.0  # Map (0, 255) --> (0, 1)
     eps = 1e-6  # prevent taking log of 0 valued pixels
     img += eps  # Inplace
@@ -165,10 +165,10 @@ def histogram_feature_v2(img, h=64, hist_boundary=[-3, 3], fall_off = 0.02):
 
     # For each channel of H(u,v,c) = H(u,v,R), H(u,v,G), H(u,v,B), k values are computed above
     histogram = torch.stack([hist_r, hist_g, hist_b], dim=1)
+    # Normalize histogram such that sum of H(u,v,c) of an image is 1
     sum_of_uvc = torch.sum(torch.sum(torch.sum(histogram, dim=3), dim=2), dim=1)
     sum_of_uvc = torch.reshape(sum_of_uvc, (-1, 1, 1, 1))
     histogram = histogram / sum_of_uvc
- 
     return histogram
 
 def main():
@@ -177,7 +177,7 @@ def main():
     # img2 = torch.stack((r,g,b), dim=0)
     # batch = torch.stack((img1, img2), dim=0)
 
-    hist1 = histogram_feature_v2(batch)
+    hist1 = histogram_feature_v2(batch, device="cpu")
     # hist2 = histogram_feature(batch)
 
     # print(torch.max(abs(hist1-hist2)))

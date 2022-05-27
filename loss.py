@@ -17,8 +17,8 @@ def disc_loss(g_scores, r_scores):
 
 # This is color matching loss, see Eq. 4
 # It takes histogram of generated and target
-def hellinger_dist_loss(g, hist_t):
-    hist_g = utils.histogram_feature_v2(g)  # Compute histogram feature of generated img
+def hellinger_dist_loss(g, hist_t, device="cuda"):
+    hist_g = utils.histogram_feature_v2(g, device=device)  # Compute histogram feature of generated img
     t_sqred = torch.sqrt(hist_t)
     g_sqred = torch.sqrt(hist_g)
     diff = t_sqred - g_sqred
