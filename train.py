@@ -56,7 +56,6 @@ for epoch in range(num_epochs):
         disc_optim.zero_grad()
         # Sample random Gaussian noise
         z = torch.rand(batch_data.size(0), 512)
-
         # Interpolate between target image histogram 
         # to prevent overfitting to dataset images
         target_hist = random_interpolate_hists(batch_data)
@@ -65,6 +64,7 @@ for epoch in range(num_epochs):
         # Detach fake data so no gradient accumalition 
         # to generator while only training discriminator
         fake_data = fake_data.detach()
+
         # Compute real probabilities computed by discriminator
         fake_scores = discriminator(fake_data)
         real_scores = discriminator(batch_data)
@@ -76,10 +76,9 @@ for epoch in range(num_epochs):
 
         if iter % g_update_iter == 0:
             gene_optim.zero_grad()
-            print("hello")
             fake_data = generator(z, target_hist) 
             disc_score = discriminator(fake_data)
-            print("hello2")
+            fake_data = torch.nn.functional.relu(fake_data)
             loss = generator_loss(fake_data, disc_score, target_hist) 
             print("Gen loss:", loss.item())
             loss.backward()

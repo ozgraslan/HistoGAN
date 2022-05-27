@@ -121,16 +121,18 @@ def get_hist_c(ur, u, vr, v, i_y, fall_off):
     return rdiffu
 
 def histogram_feature_v2(img, h=64, hist_boundary=[-3, 3], fall_off = 0.02, device="cuda"):
-    img_flat = torch.reshape(img, (img.shape[0], img.shape[1], -1))  # reshape such that img_flat = M,3,N*N
-    
-    # Pixel intesities I_y at Eq. 2
+    img = img / 255.0  # Map (0, 255) --> (0, 1)
     eps = 1e-6  # prevent taking log of 0 valued pixels
+    img += eps  # Inplace
+    # img = img+eps  # Out of place version
+    
+    img_flat = torch.reshape(img, (img.shape[0], img.shape[1], -1))  # reshape such that img_flat = M,3,N*N
+    # Pixel intesities I_y at Eq. 2
     i_y = torch.sqrt(torch.square(img_flat[:, 0]) + torch.square(img_flat[:, 1]) + torch.square(img_flat[:, 2]))
-    img += eps
+    
     log_r = torch.log(img_flat[:, 0])
     log_g = torch.log(img_flat[:, 1])
     log_b = torch.log(img_flat[:, 2])
-    
     # u,v parameters for each channel
     # each channel normalization values with respect to other two channels
     ur = log_r - log_g
@@ -165,7 +167,7 @@ def histogram_feature_v2(img, h=64, hist_boundary=[-3, 3], fall_off = 0.02, devi
     sum_of_uvc = torch.sum(torch.sum(torch.sum(histogram, dim=3), dim=2), dim=1)
     sum_of_uvc = torch.reshape(sum_of_uvc, (-1, 1, 1, 1))
     histogram = histogram / sum_of_uvc
-    
+ 
     return histogram
 
 def main():
