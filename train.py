@@ -32,6 +32,17 @@ torch.backends.cudnn.benchmark = True
 #     hist_t = delta*first_hist + (1-delta)*second_hist
 #     return hist_t
 
+def compute_gradient_penalty(fake_data, real_data, discriminator):
+    a = torch.rand((fake_data.size(0), 1, 1, 1)).to(device)
+    comb_data = a* fake_data + (1-a)*real_data
+    comb_data = comb_data.requires_grad_(True)
+    comb_score = discriminator(comb_data)
+    gradients = torch.autograd.grad(outputs=comb_score, inputs=comb_data, grad_outputs=torch.ones(comb_score.size()).to(device), create_graph=True, retain_graph=True)[0]
+    gradient_norm = torch.sqrt(torch.sum(torch.square(gradients.view(gradients.size(0), -1)), dim=1))
+    gradient_penalty = torch.mean(torch.square(gradient_norm-1))
+    return gradient_penalty
+
+
 device = "cuda" if torch.cuda.is_available() else "cpu"
 real_image_dir = "images"
 transform = transforms.Compose(
@@ -41,12 +52,21 @@ dataset = AnimeFacesDataset(real_image_dir, transform, device)
 
 batch_size = 2
 dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
-num_epochs = 100
-generator = HistoGAN().to(device)
-discriminator = Discriminator(7, 16).to(device)
+num_epochs = 10
 
-g_update_iter = 5
-acc_gradient_iter = 8
+generator = HistoGAN()
+discriminator = Discriminator(7, 16)
+
+if os.path.exists("generator.pt"):
+    generator.load_state_dict(torch.load("generator.pt"))
+if os.path.exists("discriminator.pt"):
+    discriminator.load_state_dict(torch.load("discriminator.pt"))
+
+discriminator = discriminator.to(device)
+generator=generator.to(device)
+
+g_update_iter = 1
+acc_gradient_iter = 16
 r1_factor = 1
 
 # please see StyleGAN2 paper B. Implementation Details Path length regularization
@@ -77,7 +97,7 @@ if not os.path.isdir(fake_image_dir):
 
 for epoch in range(num_epochs):
     for iter, batch_data in enumerate(dataloader):
-        torch.cuda.empty_cache() 
+        # torch.cuda.empty_cache() 
         training_percent = 100*iter*batch_data.size(0)/len(dataset)
         batch_data = batch_data.to(device)
         # Sample random Gaussian noise
@@ -96,8 +116,11 @@ for epoch in range(num_epochs):
         # Compute real probabilities computed by discriminator
         fake_scores = discriminator(fake_data)
         real_scores = discriminator(batch_data)
-        d_loss = disc_loss(fake_scores, real_scores)
+        gradient_penalty = compute_gradient_penalty(fake_data, batch_data, discriminator)
+        print("penalty", gradient_penalty.item())
 
+        #d_loss = disc_loss(fake_scores, real_scores)
+        d_loss = -torch.mean(real_scores) + torch.mean(fake_scores) + 10*gradient_penalty
         # in stylegan2 paper they argue applying regularization in every 16 iteration does not hurt perfrormance 
         if (iter+1) % 16 == 0: 
             # r1 regulatization
@@ -123,8 +146,8 @@ for epoch in range(num_epochs):
             # fake_data = torch.clamp(fake_data, -256, 256)
 
             disc_score = discriminator(fake_data)
-            g_loss = generator_loss(fake_data, disc_score, target_hist) 
-
+            #g_loss = generator_loss(fake_data, disc_score, target_hist) 
+            g_loss = -torch.mean(disc_score)
             if (iter+1) % (8*g_update_iter) == 0:
                 gradients2 = torch.autograd.grad(outputs=fake_data*torch.randn_like(fake_data).to(device), inputs=w, grad_outputs=torch.ones(fake_data.size()).to(device), retain_graph=True)[0]
                 j_norm  = torch.sqrt(torch.sum(torch.square(gradients2.view(gradients2.size(0), -1)),dim=1))
@@ -142,10 +165,12 @@ for epoch in range(num_epochs):
 
 
             
-        if iter % save_iter == 0:
+        if (iter+1) % save_iter == 0:
             for i in range(fake_data.size(0)):
                 save_image(fake_data[i], os.path.join(fake_image_dir, "fake_{}_{}_{}.png".format(epoch, iter, i)))
             torch.save(generator.state_dict(), "generator.pt")
+            torch.save(discriminator.state_dict(), "discriminator.pt")
+
             
         
 
