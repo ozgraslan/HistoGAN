@@ -51,7 +51,7 @@ transform = transforms.Compose(
      transforms.RandomHorizontalFlip(0.5)])
 dataset = AnimeFacesDataset(real_image_dir, transform, device)
 
-batch_size = 2
+batch_size = 1
 dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 num_epochs = 10
 
@@ -70,12 +70,24 @@ g_update_iter = 1
 acc_gradient_iter = 16
 r1_factor = 1
 
+# Improvement notes
+# We can not get a good generator and followings may be the origin:
+# Initialize with He explicitly, we guess Pytorch does in this way 
+#   but in some deep learning projects they forced to initialize with He.
+# EMA initialization starts with 0 but starting it with respect to initial
+#   wieghts may help
+# Paper does not mention learnign rate decay, unlike Stylegan 2 uses a decay policy
+
+# Further improvement
+# Path length penalty for better latent space
+#   will be added after reaching visually explainable results
+
 # please see StyleGAN2 paper B. Implementation Details Path length regularization
 ema_decay_coeff = 0.99
-target_scale = torch.tensor([0]).to(device)
+target_scale = torch.tensor([0]).to(device)  # Should not be 0, first weights should be used
 plr_factor = np.log(2)/(256**2*(np.log(256)-np.log(2)))
 
-save_iter = 200
+save_iter = 100
 
 gene_optim = torch.optim.Adam(
     generator.parameters(),
@@ -99,19 +111,22 @@ if not os.path.isdir(fake_image_dir):
 seen = 0
 disc_step = 0
 update_disc = 16
-dataloader = iter(dataloader)
+dataiter = iter(dataloader)
 for epoch in range(num_epochs):
+    dataiter = iter(dataloader)
     while seen < len(dataset):
         torch.cuda.empty_cache()
         cumulative_dloss = 0.0
         disc_optim.zero_grad()
         for _ in range(update_disc): 
             training_percent = 100*seen/len(dataset)
-            batch_data = next(dataloader)
+            if seen+batch_size <= len(dataset): 
+                batch_data = next(dataiter)
+            else: break
             seen += batch_data.size(0)
             batch_data = batch_data.to(device)
             # Sample random Gaussian noise
-            z = torch.rand(batch_data.size(0), 512).to(device)
+            z = torch.randn(batch_data.size(0), 512).to(device)
             # Interpolate between target image histogram 
             # to prevent overfitting to dataset images
             target_hist = None #random_interpolate_hists(batch_data)
@@ -129,7 +144,7 @@ for epoch in range(num_epochs):
             gradient_penalty = compute_gradient_penalty(fake_data, batch_data, discriminator)
 
             #d_loss = disc_loss(fake_scores, real_scores)
-            d_loss = -torch.mean(real_scores) + torch.mean(fake_scores) + 10*gradient_penalty
+            d_loss = -torch.mean(real_scores) + torch.mean(fake_scores)# + 10*gradient_penalty
             # in stylegan2 paper they argue applying regularization in every 16 iteration does not hurt perfrormance 
             if (disc_step+1) % 16 == 0: 
                 # r1 regulatization
@@ -144,7 +159,6 @@ for epoch in range(num_epochs):
             cumulative_dloss += d_loss.item()
             partial(d_loss.backward, disc_optim)
         disc_optim.step()
-        disc_step += 1
 
         print("%", training_percent, " Disc loss:", cumulative_dloss)
 
@@ -153,10 +167,12 @@ for epoch in range(num_epochs):
         cumulative_gloss = 0.0
         for _ in range(update_disc):
             training_percent = 100*seen/len(dataset)
-            batch_data = next(dataloader)
+            if seen+batch_size <= len(dataset): 
+                batch_data = next(dataiter)
+            else: break
             seen += batch_data.size(0)
             batch_data = batch_data.to(device)
-            z = torch.rand(batch_data.size(0), 512).to(device)
+            z = torch.randn(batch_data.size(0), 512).to(device)
             fake_data, w = generator(z, target_hist) 
             # fake_data = torch.clamp(fake_data, -256, 256)
 
@@ -177,10 +193,10 @@ for epoch in range(num_epochs):
         print("%", training_percent, "Gen loss:", g_loss.item())
 
 
-            
+        disc_step += 1 
         if (disc_step) % save_iter == 0:
             for i in range(fake_data.size(0)):
-                save_image(fake_data[i], os.path.join(fake_image_dir, "fake_{}_{}_{}.png".format(epoch, iter, i)))
+                save_image(fake_data[i], os.path.join(fake_image_dir, "fake_{}_{}_{}.png".format(epoch, disc_step, i)))
             torch.save(generator.state_dict(), "generator.pt")
             torch.save(discriminator.state_dict(), "discriminator.pt")
 
