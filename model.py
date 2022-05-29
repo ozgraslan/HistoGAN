@@ -189,10 +189,6 @@ class HistoGAN(torch.nn.Module):
             else:
                 rgb_sum += rgb
                 rgb_sum = self.upsample(rgb_sum)
-
-        # hist_w = self.hist_projection(target_hist.flatten(1))
-        # _, rgb = self.stylegan2_blocks[-1](fm, hist_w)
-        # rgb_sum += rgb
-        # print("sum size:", rgb_sum.size())
-        return rgb_sum
+        # w is returned to compute path lenght regularization
+        return rgb_sum, w 
     
