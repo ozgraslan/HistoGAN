@@ -3,3 +3,6 @@ __pycache__
 .vscode
 generated_images
 generator.pt
+discriminator.pt
+goals.txt
+environment.yml

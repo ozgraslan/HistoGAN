@@ -1,7 +1,6 @@
 # implement utility functions for image processing
 import matplotlib.pyplot as plt
 import torch
-import gc
 
 # Generation of histogram origined from color constancy
 # Paper: Jonathan T. Barron, Convolutional Color Constancy, 2015, https://arxiv.org/pdf/1507.00410.pdf
@@ -122,7 +121,7 @@ def get_hist_c(ur, u, vr, v, i_y, fall_off):
     return rdiffu
 
 def histogram_feature_v2(img, h=64, hist_boundary=[-3, 3], fall_off = 0.02, device="cuda"):
-    img = img / 255.0  # Map (0, 255) --> (0, 1)
+    # img = img / 255.0  # Map (0, 255) --> (0, 1)
     eps = 1e-6  # prevent taking log of 0 valued pixels
     img += eps  # Inplace
     # img = img+eps  # Out of place version
@@ -171,41 +170,16 @@ def histogram_feature_v2(img, h=64, hist_boundary=[-3, 3], fall_off = 0.02, devi
     histogram = histogram / sum_of_uvc
     return histogram
 
-def main():
-    batch = torch.rand((8, 3, 256, 256))
-    # img1 = torch.stack((r,g,b), dim=0)
-    # img2 = torch.stack((r,g,b), dim=0)
-    # batch = torch.stack((img1, img2), dim=0)
-
-    hist1 = histogram_feature_v2(batch, device="cpu")
-    # hist2 = histogram_feature(batch)
-
-    # print(torch.max(abs(hist1-hist2)))
-
-    # from PIL import Image
-    # import torchvision.transforms as transforms
-
-    # plt.figure()
-    # image = Image.open("face.jpg")
-    # # Define a transform to convert PIL 
-    # # image to a Torch tensor
-    # transform = transforms.Compose([
-    #     transforms.PILToTensor(),
-    #     # transforms.GaussianBlur(5),
-    # ])
-    
-    # # transform = transforms.PILToTensor()
-    # # Convert the PIL image to Torch tensor
-    # img_tensor = transform(image)
-    # img_tensor = torch.unsqueeze(img_tensor, dim=0)
-    # img_tensor = img_tensor.float()
-    # hist = histogram_feature(img_tensor)
-    # hist = hist.squeeze(dim=0)
-    # unloader = transforms.ToPILImage()
-    # hist_img = unloader(hist*300)
-    # plt.imshow(hist_img)
-    # plt.waitforbuttonpress()
-
-
-
-if __name__=="__main__": main()
+def random_interpolate_hists(batch_data):
+    # interpolate 2 histograms with two uniform random number to output two histograms
+    #  
+    hist = histogram_feature_v2(batch_data)
+    if hist.size(0) == 1:
+        return hist
+    else:
+        delta = torch.rand((1,1,1,1)).to(device)
+        hist_int1 = delta * hist[0] + (1-delta) * hist[1]
+        delta = torch.rand((1,1,1,1)).to(device)
+        hist_int2 = delta * hist[0] + (1-delta) * hist[1]
+        hist_t = torch.cat([hist_int1, hist_int2]).to(device)
+    return hist_t

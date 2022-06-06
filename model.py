@@ -69,7 +69,7 @@ class ModDemodConv3x3(torch.nn.Module):
     def forward(self, x, style):
         style = style.view(style.size(0),1,-1,1,1)
         modulated_weight = style * self.weight
-        sigma = torch.sqrt(modulated_weight.square().sum(dim=(2,3,4), keepdim=True) +1e-3)
+        sigma = torch.sqrt(modulated_weight.square().sum(dim=(2,3,4), keepdim=True) +1e-8)
         # print(sigma.size())
         demodulated_weight = modulated_weight / sigma
         out = self.convolution(x, demodulated_weight)
@@ -98,7 +98,6 @@ class ModConv1x1(torch.nn.Module):
 
 class StyleGAN2Block(torch.nn.Module):
     # StyleGan2 Block depicted in Figure 2/A of HistoGAN paper
-    # !!! NOT YET TESTED !!!  
     def __init__(self, input_channel_size, output_channel_size): # these channel numbers should be decided soon
         super().__init__()
         self.affine_1 = torch.nn.Linear(512, input_channel_size)
@@ -177,18 +176,18 @@ class HistoGAN(torch.nn.Module):
         B = z.size(0)
         w = self.latent_mapping(z)
         fm = self.learned_const_inp.unsqueeze(0).repeat(B, 1, 1, 1)
-        # for i, stylegan2_block in enumerate(self.stylegan2_blocks[:-1]):
-        for i, stylegan2_block in enumerate(self.stylegan2_blocks):
+        for i, stylegan2_block in enumerate(self.stylegan2_blocks[:-1]):
             fm, rgb = stylegan2_block(fm, w)
             fm = self.upsample(fm)
             if i == 0:
                 rgb = self.upsample(rgb)
                 rgb_sum = rgb
-            elif i == len(self.stylegan2_blocks) -1 :
-                rgb_sum += rgb
             else:
                 rgb_sum += rgb
                 rgb_sum = self.upsample(rgb_sum)
-        # w is returned to compute path lenght regularization
+        hist_w  = self.hist_projection(target_hist.flatten(1))
+        _, rgb = self.stylegan2_blocks[-1](fm, hist_w)
+        rgb_sum += rgb
+        # w is returned to compute path length regularization
         return rgb_sum, w 
     
