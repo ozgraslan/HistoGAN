@@ -15,6 +15,7 @@ import torch
 # Not mentioned in the paper but "sampling" is used to get img pixels of size h
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
+
 def histogram_feature(img, h=64, hist_boundary=[-3, 3], fall_off = 0.02):
     img_flat = torch.reshape(img, (img.shape[0], img.shape[1], -1))  # reshape such that img_flat = M,3,N*N
     
@@ -121,7 +122,7 @@ def get_hist_c(ur, u, vr, v, i_y, fall_off):
     return rdiffu
 
 def histogram_feature_v2(img, h=64, hist_boundary=[-3, 3], fall_off = 0.02, device="cuda"):
-    # img = img / 255.0  # Map (0, 255) --> (0, 1)
+    # img = img / 255.0  # Map (0, 255) --> (0, 1) # Handeled in Dataset class 
     eps = 1e-6  # prevent taking log of 0 valued pixels
     img += eps  # Inplace
     # img = img+eps  # Out of place version
@@ -171,8 +172,7 @@ def histogram_feature_v2(img, h=64, hist_boundary=[-3, 3], fall_off = 0.02, devi
     return histogram
 
 def random_interpolate_hists(batch_data):
-    # interpolate 2 histograms with two uniform random number to output two histograms
-    #  
+    # interpolate 2 histograms with two uniform random number to output two histograms 
     hist = histogram_feature_v2(batch_data)
     if hist.size(0) == 1:
         return hist

@@ -28,6 +28,7 @@ class Discriminator(torch.nn.Module):
         residual_block_layers = []
         in_dim = 3
         output_channels = network_capacity
+        num_res_block=5
         for _ in range(num_res_block):
             residual_block_layers.append(ResidualBlock(in_dim, output_channels))
             in_dim = output_channels
@@ -35,7 +36,8 @@ class Discriminator(torch.nn.Module):
         self.residual_layers = torch.nn.Sequential(*residual_block_layers)
 
         ## test tensor is used to calculate the input dimension to the fc layer
-        test =  torch.zeros((3,256,256))
+        # test =  torch.zeros((3,256,256))
+        test =  torch.zeros((3,64,64))
         with torch.no_grad():
             out = self.residual_layers(test)
         linear_inp = out.size(0) * out.size(1) * out.size(2)
@@ -166,7 +168,7 @@ class HistoGAN(torch.nn.Module):
         self.upsample = torch.nn.Upsample(scale_factor=2, mode="bilinear")
         stylegan2_block_list = [] 
         inp_size = 4 * network_capacity
-        for channel_size in channel_sizes:
+        for channel_size in channel_sizes[3:]:
             stylegan2_block_list.append(StyleGAN2Block(inp_size, channel_size))
             inp_size = channel_size
         self.stylegan2_blocks = torch.nn.ModuleList(stylegan2_block_list)
@@ -176,7 +178,8 @@ class HistoGAN(torch.nn.Module):
         B = z.size(0)
         w = self.latent_mapping(z)
         fm = self.learned_const_inp.unsqueeze(0).repeat(B, 1, 1, 1)
-        for i, stylegan2_block in enumerate(self.stylegan2_blocks[:-1]):
+        # for i, stylegan2_block in enumerate(self.stylegan2_blocks[:-1]):
+        for i, stylegan2_block in enumerate(self.stylegan2_blocks):
             fm, rgb = stylegan2_block(fm, w)
             fm = self.upsample(fm)
             if i == 0:
@@ -185,9 +188,9 @@ class HistoGAN(torch.nn.Module):
             else:
                 rgb_sum += rgb
                 rgb_sum = self.upsample(rgb_sum)
-        hist_w  = self.hist_projection(target_hist.flatten(1))
-        _, rgb = self.stylegan2_blocks[-1](fm, hist_w)
-        rgb_sum += rgb
+        # hist_w  = self.hist_projection(target_hist.flatten(1))
+        # _, rgb = self.stylegan2_blocks[-1](fm, hist_w)
+        # rgb_sum += rgb
         # w is returned to compute path length regularization
         return rgb_sum, w 
     

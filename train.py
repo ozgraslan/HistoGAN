@@ -36,7 +36,7 @@ acc_gradient_iter = 1
 r1_factor = 10
 # variables for Path length regularization
 # please see StyleGAN2 paper B. Implementation Details Path length regularization
-ema_decay_coeff = 0.99
+ema_decay_coeff = 0.99  # 0.999 for previous works
 target_scale = torch.tensor([0]).to(device)
 plr_factor = np.log(2)/(256**2*(np.log(256)-np.log(2)))
 # after how many iterations to save the nework parameters and generated images
