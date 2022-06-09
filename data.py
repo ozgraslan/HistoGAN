@@ -12,15 +12,15 @@ class AnimeFacesDataset(Dataset):
         for root, dirs, files in os.walk(image_dir):
             for file in files:
                 path = os.path.join(root, file)
-                image = read_image(path)
-
+                image = read_image(path).to(device)
+                image = self.transform(image) / 255.0
                 self.image_tensor_list.append(image)
 
     def __len__(self):
         return len(self.image_tensor_list)
 
     def __getitem__(self, index):
-        return self.transform(self.image_tensor_list[index]) / 255.0
+        return self.image_tensor_list[index] 
 
 
 def main():

@@ -59,6 +59,6 @@ def compute_gradient_penalty(fake_data, real_data, discriminator):
     comb_data = comb_data.requires_grad_(True)
     comb_score = discriminator(comb_data)
     gradients = torch.autograd.grad(outputs=comb_score, inputs=comb_data, grad_outputs=torch.ones(comb_score.size()).to(device), create_graph=True, retain_graph=True)[0]
-    gradient_norm = torch.sqrt(1e-6+torch.sum(torch.square(gradients.view(gradients.size(0), -1)), dim=1))
+    gradient_norm = torch.sqrt(1e-8+torch.sum(torch.square(gradients.view(gradients.size(0), -1)), dim=1))
     gradient_penalty = torch.mean(torch.square(gradient_norm-1))
     return gradient_penalty
