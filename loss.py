@@ -1,6 +1,7 @@
 # implement loss functions
 import utils
 import torch
+import numpy as np
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 # See Eq. 5
@@ -24,17 +25,22 @@ def r1_reg(batch_data, discriminator, r1_factor):
     # for autograd.grad to work input should also have requires_grad = True
     batch_data_grad = batch_data.clone().detach().requires_grad_(True)
     real_score_for_r1 = discriminator(batch_data_grad)
-    gradients1 = torch.autograd.grad(outputs=real_score_for_r1, inputs=batch_data_grad, grad_outputs=torch.ones(real_score_for_r1.size()).to(device))[0]
-    r1_reg = torch.mean(torch.sum(torch.square(gradients1.view(gradients1.size(0), -1)), dim=1))
-    return r1_factor*r1_reg  
+    gradients1 = torch.autograd.grad(outputs=real_score_for_r1.sum(), inputs=batch_data_grad, create_graph=True, retain_graph=True)[0]
+    r1_reg = torch.sum(torch.square(gradients1))
+    return (r1_factor/2)*r1_reg  
 
-def pl_reg(fake_data, w, target_scale, plr_factor, ema_decay_coeff):
-    gradients2 = torch.autograd.grad(outputs=fake_data*torch.randn_like(fake_data).to(device), inputs=w, grad_outputs=torch.ones(fake_data.size()).to(device), retain_graph=True)[0]
-    j_norm  = torch.sqrt(torch.sum(torch.square(gradients2.view(gradients2.size(0), -1)),dim=1))
-    plr = torch.mean(torch.square(j_norm - target_scale))
+def pl_reg(generator, target_hist, target_scale, plr_factor, ema_decay_coeff):
+    z = torch.randn(10, 512).to(device)
+    fake_data, w = generator(z, target_hist)
+    y = torch.randn_like(fake_data) / np.sqrt(fake_data.size(2) * fake_data.size(3))
+    y = y.to(device)
+    gradients = torch.autograd.grad(outputs=(fake_data*y).sum(), inputs=w, create_graph=True)[0]
+    j_norm  = torch.sqrt(torch.sum(torch.square(gradients), dim=1))
+    j_norm_mean = torch.mean(j_norm)
+    target_scale = (1-ema_decay_coeff)* target_scale + ema_decay_coeff * j_norm_mean.item()
+    plr = torch.square(j_norm - target_scale)
     pl_reg = plr * plr_factor
-    target_scale = (1-ema_decay_coeff)* target_scale + ema_decay_coeff * j_norm
-    return pl_reg, target_scale
+    return torch.mean(pl_reg), target_scale
 
 # This is color matching loss, see Eq. 4
 # It takes histogram of generated and target

@@ -1,5 +1,4 @@
 # implement histogan model
-from tkinter import W
 import torch
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -9,11 +8,12 @@ class LinearLayer(torch.nn.Module):
         super().__init__()
         self.weight = torch.nn.Parameter(torch.randn(inp_size, out_size))#.to(device)
         self.bias = torch.nn.Parameter(torch.randn(out_size))#.to(device)
-        self.eqlr_coeff = lr_bias / torch.sqrt(torch.tensor([inp_size]))
-        self.eqlr_coeff = self.eqlr_coeff.to(device)
+        torch.nn.init.kaiming_normal_(self.weight)
+        # self.eqlr_coeff = lr_bias / torch.sqrt(torch.tensor([inp_size]))
+        # self.eqlr_coeff = self.eqlr_coeff.to(device)
 
     def forward(self, x):
-        weight = self.weight * self.eqlr_coeff 
+        weight = self.weight #* self.eqlr_coeff 
         z = torch.addmm(self.bias, x, weight)
         return z
 
@@ -41,6 +41,7 @@ class ModDemodConv3x3(torch.nn.Module):
         super().__init__()
         # StyleGAN papers mention each weight is initalized with N(0, I)
         self.weight = torch.nn.Parameter(torch.randn(out_channels, in_channels, 3, 3))#.to(device)
+        torch.nn.init.kaiming_normal_(self.weight)
         self.padding = padding
         self.stride = stride
         self.moddemod = moddemod
@@ -49,11 +50,11 @@ class ModDemodConv3x3(torch.nn.Module):
         else:
             self.bias = None
         
-        self.eqlr_coeff = 1/torch.sqrt(torch.tensor([in_channels*3*3]))
-        self.eqlr_coeff = self.eqlr_coeff.to(device)
+        # self.eqlr_coeff = 1/torch.sqrt(torch.tensor([in_channels*3*3]))
+        # self.eqlr_coeff = self.eqlr_coeff.to(device)
 
     def forward(self, x, style=None):
-        weight = self.weight * self.eqlr_coeff
+        weight = self.weight #* self.eqlr_coeff
         if self.moddemod:
             style = style.view(style.size(0),1,-1,1,1)
             modulated_weight = style * weight
@@ -70,6 +71,7 @@ class ModConv1x1(torch.nn.Module):
     def __init__(self, in_channels, out_channels=3, padding=0, stride=1, mod=True):
         super().__init__()
         self.weight = torch.nn.Parameter(torch.randn(out_channels, in_channels, 1, 1))#.to(device)
+        torch.nn.init.kaiming_normal_(self.weight)
         self.padding = padding
         self.stride = stride
         self.mod = mod
@@ -78,11 +80,11 @@ class ModConv1x1(torch.nn.Module):
         else:
             self.bias = None
 
-        self.eqlr_coeff = 1/torch.sqrt(torch.tensor([in_channels]))
-        self.eqlr_coeff = self.eqlr_coeff.to(device)
+        # self.eqlr_coeff = 1/torch.sqrt(torch.tensor([in_channels]))
+        # self.eqlr_coeff = self.eqlr_coeff.to(device)
 
     def forward(self, x, style=None):
-        weight = self.weight * self.eqlr_coeff
+        weight = self.weight #* self.eqlr_coeff
         if self.mod:
             style = style.view(style.size(0),1,-1,1,1)
             modulated_weight = style * weight
@@ -97,10 +99,10 @@ class ResidualBlock(torch.nn.Module):
     def __init__(self, inp_dim, out_dim):
         super().__init__()
         ## residual block architecture is taken from the paper Figure S1
-        self.conv1 = ModDemodConv3x3(inp_dim, out_dim, padding=1, stride=1, moddemod=False)  # torch.nn.Conv2d(inp_dim, out_dim, kernel_size=3, padding=1, stride=1)
-        self.conv2 = ModDemodConv3x3(out_dim, out_dim, padding=1, stride=1, moddemod=False)  # torch.nn.Conv2d(out_dim, out_dim, kernel_size=3, padding=1, stride=1)
-        self.conv1x1 = ModConv1x1(inp_dim, out_dim, padding=0, stride=1, mod=False)          # torch.nn.Conv2d(inp_dim, out_dim, kernel_size=1, padding=0, stride=1)
-        self.conv3 = ModDemodConv3x3(out_dim, out_dim, padding=1, stride=2, moddemod=False)  # torch.nn.Conv2d(out_dim, out_dim, kernel_size=3, padding=1, stride=2)
+        self.conv1 = torch.nn.Conv2d(inp_dim, out_dim, kernel_size=3, padding=1, stride=1)   # ModDemodConv3x3(inp_dim, out_dim, padding=1, stride=1, moddemod=False)  
+        self.conv2 = torch.nn.Conv2d(out_dim, out_dim, kernel_size=3, padding=1, stride=1)   # ModDemodConv3x3(out_dim, out_dim, padding=1, stride=1, moddemod=False)  
+        self.conv1x1 = torch.nn.Conv2d(inp_dim, out_dim, kernel_size=1, padding=0, stride=1) # ModConv1x1(inp_dim, out_dim, padding=0, stride=1, mod=False)         
+        self.conv3 = torch.nn.Conv2d(out_dim, out_dim, kernel_size=3, padding=1, stride=2)   # ModDemodConv3x3(out_dim, out_dim, padding=1, stride=2, moddemod=False)  
         self.lrelu = torch.nn.LeakyReLU(0.2)
 
     def forward(self, x):
@@ -128,7 +130,7 @@ class Discriminator(torch.nn.Module):
             test =  torch.zeros((1, 3,image_res,image_res)).to(device)
             out = residual_layers(test)
         linear_inp = out.size(1) * out.size(2) * out.size(3)
-        self.fc = LinearLayer(linear_inp, 1, lr_bias=1)
+        self.fc = torch.nn.Linear(linear_inp, 1)
         # print(list(self.parameters()))
     
     def forward(self, x):
@@ -141,9 +143,9 @@ class StyleGAN2Block(torch.nn.Module):
     # StyleGan2 Block depicted in Figure 2/A of HistoGAN paper
     def __init__(self, input_channel_size, output_channel_size): # these channel numbers should be decided soon
         super().__init__()
-        self.affine_1 = LinearLayer(512, input_channel_size, lr_bias=1)
-        self.affine_2 = LinearLayer(512, output_channel_size, lr_bias=1)
-        self.affine_3 = LinearLayer(512, output_channel_size, lr_bias=1)
+        self.affine_1 = torch.nn.Linear(512, input_channel_size)
+        self.affine_2 = torch.nn.Linear(512, output_channel_size)
+        self.affine_3 = torch.nn.Linear(512, output_channel_size)
         # In stylegan2 paper, section B. Implementation Details/Generator redesign  
         # authors say that they used only single shared scaling factor for each feature map 
         # and they initiazlize the factor by 0
@@ -165,6 +167,7 @@ class StyleGAN2Block(torch.nn.Module):
         # but it does no matter since they are independent and random
         # in style gan2 paper each noise is tought as a N(0,I) image 
         # with same height and with as the feature map
+        # print("noise scaling factors:",self.noise_scaling_factor_1, self.noise_scaling_factor_2)
         batch, channel, height, width = fm.size()  
         noise_1 = torch.randn((batch, 1, height, width)).to(device)
         noise_2 = torch.randn((batch, 1, height, width)).to(device)
@@ -187,12 +190,12 @@ class HistoGAN(torch.nn.Module):
         # hist_projection_list = []
         # hist_projection_inp = h*h*3
         for i in range(mapping_layer_num):
-            if i == (mapping_layer_num-1):
-                latent_mapping_list.append(LinearLayer(512, 512, 0.01))
+            # if i == (mapping_layer_num-1):
+            #     latent_mapping_list.append(torch.nn.Linear(512, 512))
                 #hist_projection_list.append(LinearLayer(512, 512, 0.01))
-            else:
-                latent_mapping_list.extend([LinearLayer(512, 512, 0.01),
-                                           torch.nn.LeakyReLU(0.2)])
+            # else:
+            latent_mapping_list.extend([torch.nn.Linear(512, 512),
+                                        torch.nn.LeakyReLU(0.2, inplace=True)])
 
                 #hist_projection_list.extend([LinearLayer(hist_projection_inp, 512, 0.01), torch.nn.LeakyReLU(0.2)])
                 #hist_projection_inp  = 512
@@ -208,6 +211,9 @@ class HistoGAN(torch.nn.Module):
             inp_size = channel_size
         self.stylegan2_blocks = torch.nn.ModuleList(stylegan2_block_list)
 
+        for mod in self.modules():
+            if type(mod) in [torch.nn.Linear, torch.nn.Conv2d]:
+                torch.nn.init.kaiming_normal_(mod.weight)
     def get_w_from_z(self, z):
         with torch.no_grad():
             w = self.latent_mapping(z)

@@ -6,6 +6,9 @@ generator.pt
 discriminator.pt
 goals.txt
 environment.yml
-generator_new.pt
-discriminator_new.pt
+generator_new*.pt
+discriminator_new*.pt
 new_generated_images
+dcgan_out
+wandb
+dcgan.py
