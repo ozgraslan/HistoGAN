@@ -7,13 +7,13 @@ from torchvision.utils import save_image
 from torch_optimizer import DiffGrad
 from data import AnimeFacesDataset
 from model import Discriminator, HistoGAN
-from loss import compute_gradient_penalty, pl_reg, gp_only_real, wgan_gp_disc_loss, wgan_gp_gen_loss
+from loss import compute_gradient_penalty, pl_reg, gp_only_real, wgan_gp_disc_loss, wgan_gp_gen_loss, hellinger_dist_loss
 from utils import random_interpolate_hists
 import os
 
 import wandb
 config = dict(
-    num_epochs = 10,
+    num_epochs = 20,
     batch_size = 16,
     acc_gradient_total = 16,
     r1_factor = 10,
@@ -23,27 +23,27 @@ config = dict(
     save_iter = 400,
     image_res = 64,
     network_capacity = 16,
-    latent_dim = 64,
+    latent_dim = 512,
     bin_size = 64,
     learning_rate = 0.0002,
     mapping_layer_num = 8,
     mixing_prob = 0.9,
     use_plr = True,
     use_r1r = True,
-    kaiming_init=False,
+    kaiming_init=True,
     use_eqlr = False,
     use_spec_norm = False,
     disc_arch= "ResBlock",
     gen_arch = "InputModDemod",
-    optim="DiffGrad",
+    optim="Adam",
     loss_type="wasser")
 
 wandb.init(project="histogan", 
            entity="metu-kalfa",
            config = config)
 
-torch.autograd.set_detect_anomaly(True)
-torch.backends.cudnn.benchmark = True
+# torch.autograd.set_detect_anomaly(True)
+# torch.backends.cudnn.benchmark = True
 
 # parameters
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -123,8 +123,8 @@ generator=generator.to(device)
 
 # Initialize optimizers 
 if optim == "Adam":
-    gene_optim = torch.optim.Adam(generator.parameters(), lr=learning_rate)
-    disc_optim = torch.optim.Adam(discriminator.parameters(), lr=learning_rate)
+    gene_optim = torch.optim.Adam(generator.parameters(), lr=learning_rate, betas=(0.5, 0.99))
+    disc_optim = torch.optim.Adam(discriminator.parameters(), lr=learning_rate, betas=(0.5, 0.99))
 elif optim == "DiffGrad":
     gene_optim = DiffGrad(generator.parameters(), lr=learning_rate)
     disc_optim = DiffGrad(discriminator.parameters(), lr=learning_rate)
@@ -147,26 +147,32 @@ def mixing_noise():
     return z
 
 
-def train_generator(generator, discriminator, gene_optim, batch_size, iter): # hist_list
+def train_generator(generator, discriminator, gene_optim, batch_size, iter, hist_list): # 
     global target_scale
     total_gene_loss = 0
     total_plr_loss = 0
     gene_optim.zero_grad()
-    # for target_hist in hist_list:
-    for _ in range(acc_gradient_iter):
+    for target_hist in hist_list:
+    # for _ in range(acc_gradient_iter):
         z = mixing_noise().to(device) # torch.randn(batch_size, latent_dim)
-        fake_data, w = generator(z, None) # target_hist
+        fake_data, w = generator(z, target_hist) # target_hist
         disc_score = discriminator(fake_data)
         if loss_type in ["wasser", "hinge"]:
             g_loss = -torch.mean(disc_score) / acc_gradient_iter
         elif loss_type == "softplus":
             g_loss = torch.mean(torch.nn.functional.softplus(-disc_score)) / acc_gradient_iter      
         total_gene_loss += g_loss.item()
+
+        # compute histogram loss
+        c_loss = hellinger_dist_loss(fake_data, target_hist)
+        alpha = 2.0  # See Sec. 5.2 Training details
+        g_loss += alpha * c_loss
+
         pl_loss = 0 
         if use_plr and (iter+1) % plr_update_iter == 0:
             std = 0.1 / (w.std(dim=0, keepdim=True) + 1e-8)
             w_changed = w + torch.randn_like(w, device=device) / (std + 1e-8)
-            changed_data = generator.gen_image_from_w(w_changed, None)
+            changed_data = generator.gen_image_from_w(w_changed, target_hist)
             pl_lengths = ((changed_data - fake_data) ** 2).mean(dim=(1, 2, 3))
             avg_pl_length = torch.mean(pl_lengths).item()
             pl_loss = torch.mean(torch.square(pl_lengths - target_scale))
@@ -190,22 +196,22 @@ def train_generator(generator, discriminator, gene_optim, batch_size, iter): # h
     del g_loss, total_gene_loss, total_plr_loss
 
 def train_discriminator(generator, discriminator, disc_optim, chunk_data, batch_size, iter):
-    #hist_list = []
+    hist_list = []
     disc_optim.zero_grad()
     total_disc_loss = 0
+    total_real_loss = 0
+    total_fake_loss = 0
     total_r1_loss = 0
     for index in range(chunk_data.size(0)//batch_size):
         batch_data = chunk_data[index*batch_size:(index+1)*batch_size]
-        batch_data.requires_grad_()
-        # batch_data = batch_data.to(device)
-        #target_hist = random_interpolate_hists(batch_data)
-        #hist_list.append(target_hist.clone())
-        z = mixing_noise().to(device) # torch.randn(batch_size, latent_dim)
-        fake_data, _ = generator(z, None) #target_hist
+        batch_data.requires_grad_().to(device)
+        target_hist = random_interpolate_hists(batch_data)
+        hist_list.append(target_hist.clone())
+        z = mixing_noise().to(device) 
+        fake_data, _ = generator(z, target_hist) 
         fake_data = fake_data.detach()
         fake_scores = discriminator(fake_data)
         real_scores = discriminator(batch_data)
-        # gradient_penalty = compute_gradient_penalty(fake_data, batch_data, discriminator)
         if loss_type == "hinge":
             real_loss = torch.mean(torch.nn.functional.relu(1-real_scores))    
             fake_loss = torch.mean(torch.nn.functional.relu(1+ fake_scores)) 
@@ -219,6 +225,8 @@ def train_discriminator(generator, discriminator, disc_optim, chunk_data, batch_
 
         disc_loss =  real_loss + fake_loss  # torch.mean(torch.nn.functional.relu(1 + real_scores) + torch.nn.functional.relu(1 - fake_scores)) #
         total_disc_loss += disc_loss.item()
+        total_fake_loss += fake_loss.item()
+        total_real_loss += real_loss.item()
         r1_loss = 0
         if use_r1r and iter % r1_update_iter == 0:
             r1_loss =  gp_only_real(batch_data, real_scores, r1_factor)/ acc_gradient_iter
@@ -229,7 +237,7 @@ def train_discriminator(generator, discriminator, disc_optim, chunk_data, batch_
         fake_loss.backward()
 
     if iter % log_interval == 0:
-        wandb.log({"disc_loss" : total_disc_loss},step=iter)
+        wandb.log({"disc_loss" : total_disc_loss, "disc_real_loss": total_real_loss, "disc_fake_loss": total_fake_loss},step=iter)
         if use_r1r and iter % r1_update_iter == 0:
            wandb.log({"r1_loss" : total_r1_loss},step=iter)
 
@@ -237,7 +245,7 @@ def train_discriminator(generator, discriminator, disc_optim, chunk_data, batch_
     disc_optim.step()
     disc_optim.zero_grad()
     del disc_loss, total_disc_loss, total_r1_loss
-    #return hist_list
+    return hist_list
 
 
 # # Traning loop without gradient accumulation
@@ -251,17 +259,17 @@ for epoch in range(0, num_epochs):
         
         # print("Epoch",epoch, " Training %", training_percent)
         total_iter += 1
-        train_discriminator(generator, discriminator, disc_optim, chunk_data, batch_size, total_iter) # hist_list = 
-        train_generator(generator, discriminator, gene_optim, batch_size, total_iter)
+        hist_list = train_discriminator(generator, discriminator, disc_optim, chunk_data, batch_size, total_iter) # hist_list = 
+        train_generator(generator, discriminator, gene_optim, batch_size, total_iter, hist_list=hist_list)
 
         if iter % log_interval == 0:
             # wandb.log({"training_percent": training_percent},step=iter)
             # torch.clamp(truncation_trick(generator, latent_dim, batch_size), 0, 1) # hist_list[-1]
             z = mixing_noise().to(device)
-            fake_data, _ = generator(z, None)
+            fake_data, _ = generator(z, hist_list[0])
             # print(type(fake_data), fake_data)
             save_image(fake_data, os.path.join(fake_image_dir, "fake_{}_{}_norm.png".format(epoch, iter)), normalize=True)
-            save_image(chunk_data, os.path.join(fake_image_dir, "real_{}_{}_norm.png".format(epoch, iter)), normalize=True)
+            # save_image(chunk_data, os.path.join(fake_image_dir, "real_{}_{}_norm.png".format(epoch, iter)), normalize=True)
 
             # save_image(torch.clamp(fake_data, 0, 1), os.path.join(fake_image_dir, "fake_{}_{}_clamp.png".format(epoch, iter)))
 

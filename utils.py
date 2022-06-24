@@ -171,7 +171,7 @@ def histogram_feature_v2(img, h=64, hist_boundary=[-3, 3], fall_off = 0.02, devi
     histogram = histogram / sum_of_uvc
     return histogram
 
-def random_interpolate_hists(batch_data):
+def random_interpolate_hists_old(batch_data):
     # interpolate 2 histograms with two uniform random number to output two histograms 
     hist = histogram_feature_v2(batch_data)
     if hist.size(0) == 1:
@@ -182,4 +182,14 @@ def random_interpolate_hists(batch_data):
         delta = torch.rand((1,1,1,1)).to(device)
         hist_int2 = delta * hist[0] + (1-delta) * hist[1]
         hist_t = torch.cat([hist_int1, hist_int2]).to(device)
+    return hist_t
+    
+def random_interpolate_hists(batch_data):
+    B = batch_data.size(0)
+    delta = torch.rand((B,1,1,1)).to(device)
+    first_images = torch.index_select(batch_data, dim=0, index=torch.randint(0, B, (B,)).to(device))
+    second_images = torch.index_select(batch_data, dim=0, index=torch.randint(0, B, (B,)).to(device))
+    first_hist = histogram_feature_v2(first_images)
+    second_hist = histogram_feature_v2(second_images)
+    hist_t = delta*first_hist + (1-delta)*second_hist
     return hist_t

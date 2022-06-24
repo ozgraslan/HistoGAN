@@ -221,9 +221,9 @@ class HistoGANAda(torch.nn.Module):
                                    torch.nn.LeakyReLU(0.2, True)])
         hist_projection_list = []
         hist_projection_list.extend([torch.nn.Linear(h*h*3, 1024), 
-                                    torch.nn.LeakyReLU(0.2),
+                                    torch.nn.LeakyReLU(0.2, True),
                                     torch.nn.Linear(1024, 512),
-                                    torch.nn.LeakyReLU(0.2)]) 
+                                    torch.nn.LeakyReLU(0.2)], True) 
         for i in range(6):
             # if i == 5:
             #     latent_mapping_list.append(torch.nn.Linear(512, 512))
@@ -386,22 +386,19 @@ class HistoGAN(torch.nn.Module):
     def __init__(self, network_capacity=16, latent_size=512, h=64, image_res=256, mapping_layer_num=8, kaiming_init=True, use_eqlr=False):
         super().__init__()
         latent_mapping_list = []
-        # hist_projection_list = []
-        # hist_projection_inp = h*h*3
+        hist_projection_list = []
+        hist_projection_inp = h*h*3
         num_gen_layers = int(np.log2(image_res)-1)
         for i in range(mapping_layer_num):
-            # if i == (mapping_layer_num-1):
-            #     latent_mapping_list.append(torch.nn.Linear(latent_size, latent_size))
-                #hist_projection_list.append(LinearLayer(latent_size, latent_size, 0.01, kaiming_init=True, use_eqlr=False))
-            # else:
             latent_mapping_list.extend([torch.nn.Linear(latent_size, latent_size),
                                         torch.nn.LeakyReLU(0.2, inplace=True)])
 
-                #hist_projection_list.extend([LinearLayer(hist_projection_inp, latent_size, 0.01, kaiming_init=True, use_eqlr=False), torch.nn.LeakyReLU(0.2)])
-                #hist_projection_inp  = latent_size
+            hist_projection_list.extend([torch.nn.Linear(hist_projection_inp, latent_size), 
+                                        torch.nn.LeakyReLU(0.2, inplace=True)])
+            hist_projection_inp  = latent_size
 
         self.latent_mapping = torch.nn.Sequential(*latent_mapping_list)
-        #self.hist_projection = torch.nn.Sequential(*hist_projection_list)
+        self.hist_projection = torch.nn.Sequential(*hist_projection_list)
         self.learned_const_inp = torch.nn.Parameter(torch.randn(4*network_capacity, 4, 4))
         self.upsample = torch.nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False)
         stylegan2_block_list = [] 
@@ -433,8 +430,6 @@ class HistoGAN(torch.nn.Module):
                 if i == 0:
                     rgb = self.upsample(rgb)
                     rgb_sum = rgb
-                elif i == len(self.stylegan2_blocks) -1:
-                    rgb_sum += rgb
                 else:
                     rgb_sum += rgb
                     rgb_sum = self.upsample(rgb_sum)
@@ -448,18 +443,15 @@ class HistoGAN(torch.nn.Module):
         B = z.size(0)
         w = self.latent_mapping(z)
         fm = self.learned_const_inp.expand(B, -1, -1, -1)
-        for i, stylegan2_block in enumerate(self.stylegan2_blocks): # [:-1]
+        for i, stylegan2_block in enumerate(self.stylegan2_blocks[:-1]): 
             fm, rgb = stylegan2_block(fm, w[:,i,:])
             fm = self.upsample(fm)
             if i == 0:
                 rgb = self.upsample(rgb)
                 rgb_sum = rgb
-            elif i == len(self.stylegan2_blocks)-1:
-                rgb_sum += rgb
             else:
                 rgb_sum += rgb
                 rgb_sum = self.upsample(rgb_sum)
-            # print(rgb_sum.mean(), rgb_sum.var())
         hist_w  = self.hist_projection(target_hist.flatten(1))
         _, rgb = self.stylegan2_blocks[-1](fm, hist_w)
         rgb_sum += rgb
