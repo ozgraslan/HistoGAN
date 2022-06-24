@@ -9,19 +9,27 @@ class AnimeFacesDataset(Dataset):
         self.image_dir = image_dir
         self.transform = transform
         self.image_tensor_list = []
+        i = 0
         for root, dirs, files in os.walk(image_dir):
             for ind, file in enumerate(files):
                 path = os.path.join(root, file)
-                image = read_image(path)
-
+                image = read_image(path).to(device)
+                image = self.transform(image/255.0) 
                 self.image_tensor_list.append(image)
+<<<<<<< HEAD
                 # if ind==65: return 
+=======
+                i += 1
+                # if i == 100:
+                #     return
+
+>>>>>>> 9bd12102f67a8a4db7ee9ed1fe3702073ddabd19
 
     def __len__(self):
         return len(self.image_tensor_list)
 
     def __getitem__(self, index):
-        return self.transform(self.image_tensor_list[index]) / 255.0
+        return self.image_tensor_list[index] 
 
 
 def main():

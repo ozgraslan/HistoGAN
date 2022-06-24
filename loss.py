@@ -1,6 +1,7 @@
 # implement loss functions
 import utils
 import torch
+import numpy as np
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 # See Eq. 5
@@ -22,13 +23,15 @@ def wgan_gp_gen_loss(disc_score):
 def wgan_gp_disc_loss(real_scores, fake_scores, gradient_penalty, coeff_penalty):
     return -torch.mean(real_scores) + torch.mean(fake_scores) + coeff_penalty*gradient_penalty
 
-def r1_reg(batch_data, discriminator, r1_factor):
+def gp_only_real(real_data, real_scores, r1_factor):
     # for autograd.grad to work input should also have requires_grad = True
-    batch_data_grad = batch_data.clone().detach().requires_grad_(True)
-    real_score_for_r1 = discriminator(batch_data_grad)
-    gradients1 = torch.autograd.grad(outputs=real_score_for_r1.sum(), inputs=batch_data_grad, create_graph=True, retain_graph=True)[0]
-    r1_reg = torch.sum(torch.square(gradients1))
-    return (r1_factor/2)*r1_reg  
+    # print(real_scores.size(), real_data.size())
+    gradients = torch.autograd.grad(outputs=real_scores.mean(), inputs=real_data, create_graph=True, retain_graph=True)[0]
+    # print(gradients.size())
+    gradients = gradients.view(real_data.size(0), -1)
+    gradient_norm = torch.sqrt(1e-8+torch.sum(torch.square(gradients), dim=1))
+    r1_reg = torch.mean(torch.square(gradient_norm-1))
+    return r1_factor*r1_reg  
 
 def pl_reg(generator, target_hist, target_scale, plr_factor, ema_decay_coeff):
     z = torch.randn(10, 512).to(device)
@@ -70,7 +73,7 @@ def compute_gradient_penalty(fake_data, real_data, discriminator):
     comb_data = comb_data.requires_grad_(True)
     comb_score = discriminator(comb_data)
     gradients = torch.autograd.grad(outputs=comb_score, inputs=comb_data, grad_outputs=torch.ones(comb_score.size()).to(device), create_graph=True, retain_graph=True)[0]
-    gradient_norm = torch.sqrt(1e-6+torch.sum(torch.square(gradients.view(gradients.size(0), -1)), dim=1))
+    gradient_norm = torch.sqrt(1e-8+torch.sum(torch.square(gradients.view(gradients.size(0), -1)), dim=1))
     gradient_penalty = torch.mean(torch.square(gradient_norm-1))
     return gradient_penalty
 
