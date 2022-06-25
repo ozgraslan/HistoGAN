@@ -5,40 +5,15 @@ from torchvision.utils import save_image
 from trainer import Trainer
 
 
-
-
-
-# Taken from https://pytorch.org/vision/stable/auto_examples/plot_visualization_utils.html
-
-import matplotlib.pyplot as plt
-import torchvision.transforms.functional as F
-from torchvision.utils import make_grid
-
-
-plt.rcParams["savefig.bbox"] = 'tight'
-
-
-def show(imgs):
-    imgs = imgs.mul(255).add_(0.5).clamp_(0, 255).to("cpu", torch.uint8)
-    if not isinstance(imgs, list):
-        imgs = [imgs]
-    fix, axs = plt.subplots(ncols=len(imgs), squeeze=False)
-    for i, img in enumerate(imgs):
-        img = img.detach()
-        img = F.to_pil_image(img)
-        axs[0, i].imshow(np.asarray(img))
-        axs[0, i].set(xticklabels=[], yticklabels=[], xticks=[], yticks=[])
-        plt.show()
-
 config = dict(
-    num_epochs = 10, # number of epochs for training
+    num_epochs = 100, # number of epochs for training
     batch_size = 16, # batch size
     acc_gradient_total = 16, # total number of samples seen by the networks in 1 iteration
     r1_factor = 10, # coefficient of the r1 regularization term
     r1_update_iter = 4, # in every r1_update_iter r1 regularization is used
     decay_coeff = 0.99, # ema decay coefficient for updating the path length target varaible
     plr_update_iter = 32, # in every plr_update_iter the path length regularization is used
-    save_iter = 400, # in every save_iter the images are saved
+    save_iter = 1200, # in every save_iter the images are saved
     image_res = 64, # the resolution of the images
     network_capacity = 16, # capacity of the network used for channels of constant input in generator 
     latent_dim = 512, # dimensionalty of the noises
@@ -77,14 +52,10 @@ for epoch in range(0, trainer.num_epochs):
 
     # save iamges after every epoch
         if iter % trainer.save_iter == 0:
+            print("Epoch", epoch, "Iter", iter)
             z = torch.randn(trainer.batch_size, trainer.num_gen_layers,trainer.latent_dim).to(trainer.device)
             fake_data, _ = trainer.generator(z, hist_list[0])
             print(fake_data.size())
-            save_image(fake_data, "{}.png".format(epoch), normalize=True)
-            # fd = [data for data in fake_data]
-            # grid = make_grid(fd, nrow=1, normalize=True)
-            # show(grid)
-            # plt.show()
-            # del grid, fd, fake_data, z
+            save_image(fake_data, os.path.join(trainer.generated_images_path, "{}_{}.png".format(epoch,iter)), normalize=True)
             torch.save(trainer.generator.state_dict(), os.path.join(trainer.save_model_path, "generator.pt"))
             torch.save(trainer.discriminator.state_dict(), os.path.join(trainer.save_model_path, "discriminator.pt"))

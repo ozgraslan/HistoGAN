@@ -299,8 +299,6 @@ class StyleGAN2Block(torch.nn.Module):
         # print("style1", style_1.mean(), style_1.var())
         style_2 = self.affine_2(w)
         style_3 = self.affine_3(w)
-        # if bias is not reshaped gives error, this version can broadcast to batch
-        # print(self.md3x3_1(fm, style_1).size(), noise_1.size())
         out = self.md3x3_1(fm, style_1) + self.noise_scaling_factor_1 * noise_1 + self.bias_1.view(-1,1,1) 
         out = self.lrelu(out)
         out = self.md3x3_2(out, style_2) + self.noise_scaling_factor_2 * noise_2 + self.bias_2.view(-1,1,1)

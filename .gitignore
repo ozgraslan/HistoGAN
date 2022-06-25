@@ -4,7 +4,6 @@ __pycache__
 generated_images
 generator.pt
 discriminator.pt
-goals.txt
 environment.yml
 generator_new*.pt
 discriminator_new*.pt

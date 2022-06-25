@@ -212,9 +212,9 @@ def mixing_noise(batch_size, num_gen_layers, latent_dim, mixing_prob):
         z = torch.randn((batch_size, num_gen_layers, latent_dim))
     return z
 
-def truncation_trick(generator, target_histogram, latent_size, batch_size, device): 
-    z = torch.randn((2000, latent_size)).to(device)
+def truncation_trick(generator, target_histogram, latent_size, batch_size,num_gen_layers, device): 
+    z = torch.randn((2000, num_gen_layers-2, latent_size)).to(device)
     w = generator.get_w_from_z(z)
     w_mean = torch.mean(w, dim=0, keepdim=True)
-    fake_imgs = generator.gen_image_from_w(w_mean.repeat(batch_size,1), target_histogram) 
+    fake_imgs = generator.gen_image_from_w(w_mean.expand(batch_size,-1,-1), target_histogram, test=True) 
     return fake_imgs
