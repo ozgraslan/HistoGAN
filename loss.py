@@ -36,7 +36,7 @@ def pl_reg(fake_data, w, target_scale, plr_factor, ema_decay_coeff, device):
 def hellinger_dist_loss(g, hist_t, device):
     relu_g = torch.nn.functional.relu(g, inplace=False)
     relu_g = torch.clamp(relu_g, 0, 1) # Fix relu inplace gradient
-    hist_g = utils.histogram_feature_v2(relu_g)  # Compute histogram feature of generated img
+    hist_g = utils.histogram_feature_v2(relu_g, device=device)  # Compute histogram feature of generated img
     t_sqred = torch.sqrt(hist_t)
     # print("Target", torch.isnan(t_sqred))
     g_sqred = torch.sqrt(hist_g)
