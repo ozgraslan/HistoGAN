@@ -68,9 +68,8 @@ class Trainer():
 
         self.discriminator = discriminator.to(self.device)
         self.generator = generator.to(self.device)
-
-        
         self.target_scale = torch.tensor([0], requires_grad=False).to(self.device)
+        print("Networks Created")
 
         if optim == "Adam":
             gene_optim = torch.optim.Adam(generator.parameters(), lr=learning_rate, betas=(0.5, 0.9))
@@ -88,7 +87,7 @@ class Trainer():
         self.gene_optim.zero_grad()
         for target_hist in hist_list:
             # generate fake data using mixed noise
-            z = mixing_noise(self.batch_size, self.num_gen_layers, self.latent_dim, self.mixing_prob).to(self.device)
+            z = mixing_noise(self.batch_size, self.num_gen_layers-1, self.latent_dim, self.mixing_prob).to(self.device)
             fake_data, w = self.generator(z, target_hist) 
             disc_score = self.discriminator(fake_data)
             
@@ -124,7 +123,7 @@ class Trainer():
             batch_data = batch_data.to(self.device)
             target_hist = random_interpolate_hists(batch_data)
             hist_list.append(target_hist.clone())
-            z = mixing_noise(self.batch_size, self.num_gen_layers, self.latent_dim, self.mixing_prob).to(self.device) 
+            z = mixing_noise(self.batch_size, self.num_gen_layers-1, self.latent_dim, self.mixing_prob).to(self.device) 
             fake_data, _ = self.generator(z, target_hist) 
             fake_data = fake_data.detach()
             fake_scores = self.discriminator(fake_data)
@@ -152,20 +151,3 @@ class Trainer():
         self.disc_optim.step()
         self.disc_optim.zero_grad()
         return hist_list
-
-    def train(self):
-        '''
-        Traning loop with gradient accumulation
-        ''' 
-        total_iter = 0
-        for _ in range(0, self.num_epochs):
-            for iter, chunk_data in enumerate(self.dataloader):
-                total_iter += 1
-                hist_list = self.train_discriminator(self, chunk_data, iter)
-                self.train_generator(self, hist_list, iter)
-
-                if iter % self.save_iter == 0:
-                    z = mixing_noise(self.batch_size, self.num_gen_layers, self.latent_dim, self.mixing_prob).to(self.device)
-                    fake_data, _ = self.generator(z, hist_list[0])
-                    torch.save(self.generator.state_dict(), os.path.join(self.save_model_path, "generator.pt"))
-                    torch.save(self.discriminator.state_dict(), os.path.join(self.save_model_path, "discriminator.pt"))
