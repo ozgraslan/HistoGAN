@@ -4,25 +4,6 @@ import numpy as np
 from torch.nn.utils.parametrizations import spectral_norm
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-class LinearLayer(torch.nn.Module):
-    def __init__(self, inp_size, out_size, lr_bias, kaiming_init=True, use_eqlr=False):
-        super().__init__()
-        self.weight = torch.nn.Parameter(torch.randn(inp_size, out_size))#.to(device)
-        self.bias = torch.nn.Parameter(torch.randn(out_size))#.to(device)
-        if kaiming_init:
-            torch.nn.init.kaiming_normal_(self.weight)
-        if use_eqlr:
-            self.eqlr_coeff = lr_bias / torch.sqrt(torch.tensor([inp_size]))
-            self.eqlr_coeff = self.eqlr_coeff.to(device)
-        self.use_eqlr = use_eqlr
-
-    def forward(self, x):
-        weight = self.weight 
-        if self.use_eqlr:
-            weight*= self.eqlr_coeff 
-        z = torch.addmm(self.bias, x, weight)
-        return z
-
 def convolution(inp, weight, padding, stride):
     # Implementaion of convolution operation using torch.unfold 
     # Taken from https://pytorch.org/docs/stable/generated/torch.nn.Unfold.html
@@ -46,14 +27,14 @@ class ModDemodConv3x3(torch.nn.Module):
     def __init__(self, in_channels, out_channels, padding=0, stride=1, moddemod=True, kaiming_init=True, use_eqlr=False):
         super().__init__()
         # StyleGAN papers mention each weight is initalized with N(0, I)
-        self.weight = torch.nn.Parameter(torch.randn(out_channels, in_channels, 3, 3))#.to(device)
+        self.weight = torch.nn.Parameter(torch.randn(out_channels, in_channels, 3, 3))
         if kaiming_init:
             torch.nn.init.kaiming_normal_(self.weight)
         self.padding = padding
         self.stride = stride
         self.moddemod = moddemod
         if not self.moddemod:
-            self.bias = torch.nn.Parameter(torch.randn(out_channels))#.to(device)
+            self.bias = torch.nn.Parameter(torch.randn(out_channels))
         else:
             self.bias = None
         
@@ -115,16 +96,16 @@ class ResidualBlock(torch.nn.Module):
         super().__init__()
         ## residual block architecture is taken from the paper Figure S1
         if use_spec_norm:
-            self.conv1 = spectral_norm(torch.nn.Conv2d(inp_dim, out_dim, kernel_size=3, padding=1, stride=1))    # ModDemodConv3x3(inp_dim, out_dim, padding=1, stride=1, moddemod=False)  
-            self.conv2 = spectral_norm(torch.nn.Conv2d(out_dim, out_dim, kernel_size=3, padding=1, stride=1))   # ModDemodConv3x3(out_dim, out_dim, padding=1, stride=1, moddemod=False)  
-            self.conv1x1 = spectral_norm(torch.nn.Conv2d(inp_dim, out_dim, kernel_size=1, padding=0, stride=1))  # ModConv1x1(inp_dim, out_dim, padding=0, stride=1, mod=False)         
+            self.conv1 = spectral_norm(torch.nn.Conv2d(inp_dim, out_dim, kernel_size=3, padding=1, stride=1))      
+            self.conv2 = spectral_norm(torch.nn.Conv2d(out_dim, out_dim, kernel_size=3, padding=1, stride=1))    
+            self.conv1x1 = spectral_norm(torch.nn.Conv2d(inp_dim, out_dim, kernel_size=1, padding=0, stride=1))           
         else:
-            self.conv1 = torch.nn.Conv2d(inp_dim, out_dim, kernel_size=3, padding=1, stride=1)   # ModDemodConv3x3(inp_dim, out_dim, padding=1, stride=1, moddemod=False)  
-            self.conv2 = torch.nn.Conv2d(out_dim, out_dim, kernel_size=3, padding=1, stride=1)  # ModDemodConv3x3(out_dim, out_dim, padding=1, stride=1, moddemod=False)  
-            self.conv1x1 =torch.nn.Conv2d(inp_dim, out_dim, kernel_size=1, padding=0, stride=1) # ModConv1x1(inp_dim, out_dim, padding=0, stride=1, mod=False)         
+            self.conv1 = torch.nn.Conv2d(inp_dim, out_dim, kernel_size=3, padding=1, stride=1)    
+            self.conv2 = torch.nn.Conv2d(out_dim, out_dim, kernel_size=3, padding=1, stride=1)   
+            self.conv1x1 =torch.nn.Conv2d(inp_dim, out_dim, kernel_size=1, padding=0, stride=1)       
         self.lrelu = torch.nn.LeakyReLU(0.2)
         if reduce_size:
-            self.conv3 = torch.nn.Conv2d(out_dim, out_dim, kernel_size=3, padding=1, stride=2)   # ModDemodConv3x3(out_dim, out_dim, padding=1, stride=2, moddemod=False)  
+            self.conv3 = torch.nn.Conv2d(out_dim, out_dim, kernel_size=3, padding=1, stride=2)  
         else:
             self.conv3 = None
 
@@ -148,16 +129,6 @@ class Discriminator(torch.nn.Module):
         for i in range(num_res_block):
             reduce_size = i != (num_res_block-1)
             residual_block_layers.append(ResidualBlock(in_dim, out_dim, reduce_size, use_spec_norm))
-            # if reduce_size:
-            #     if use_spec_norm:
-            #         residual_block_layers.append(spectral_norm(torch.nn.Conv2d(in_dim, out_dim, kernel_size=3, stride=2 ,padding=1)))
-            #     else:
-            #         residual_block_layers.append(torch.nn.Conv2d(in_dim, out_dim, kernel_size=3, stride=2 ,padding=1))
-            # else:
-            #     if use_spec_norm:
-            #         residual_block_layers.append(spectral_norm(torch.nn.Conv2d(in_dim, out_dim, kernel_size=3, padding=1)))
-            #     else:
-            #         residual_block_layers.append(torch.nn.Conv2d(in_dim, out_dim, kernel_size=3, padding=1))
             in_dim = out_dim
             out_dim = 2*out_dim 
         self.residual_layers = torch.nn.Sequential(*residual_block_layers)
@@ -337,8 +308,8 @@ class StyleGAN2Block(torch.nn.Module):
         rgb_out = self.m1x1(out, style_3) # rgb_out should then be upsampled, for now left it out of this block
         return out, rgb_out
 
-class StyleGAN2Block2(torch.nn.Module):
-    # StyleGan2 Block depicted in Figure 2/A of HistoGAN paper
+class StyleGAN2BlockC(torch.nn.Module):
+    # StyleGan2 Block depicted in Figure 2/C of HistoGAN paper
     def __init__(self, input_channel_size, output_channel_size, latent_size=512): # these channel numbers should be decided soon
         super().__init__()
         self.affine_1 = torch.nn.Linear(latent_size, input_channel_size)
@@ -387,7 +358,7 @@ class StyleGAN2Block2(torch.nn.Module):
         return out, rgb_out
 
 class HistoGAN(torch.nn.Module):
-    def __init__(self, network_capacity=16, latent_size=512, h=64, image_res=256, mapping_layer_num=8, kaiming_init=True, use_eqlr=False):
+    def __init__(self, network_capacity=16, latent_size=512, h=64, image_res=256, mapping_layer_num=8, kaiming_init=True, use_eqlr=False, ver="InputModDemod"):
         super().__init__()
         latent_mapping_list = []
         hist_projection_list = []
@@ -412,8 +383,10 @@ class HistoGAN(torch.nn.Module):
         inp_size = 4 * network_capacity
         out_size = network_capacity * 2**num_gen_layers
         for _ in range(num_gen_layers):
-            # print(inp_size, out_size)
-            stylegan2_block_list.append(StyleGAN2Block2(inp_size, out_size, latent_size=latent_size))
+            if ver == "InputModDemod":
+                stylegan2_block_list.append(StyleGAN2BlockC(inp_size, out_size, latent_size=latent_size))
+            elif ver == "WeightModDemod":
+                stylegan2_block_list.append(StyleGAN2Block(inp_size, out_size, latent_size=latent_size, kaiming_init=kaiming_init, use_eqlr=use_eqlr))
             inp_size = out_size
             out_size //= 2
         self.stylegan2_blocks = torch.nn.ModuleList(stylegan2_block_list)
@@ -422,48 +395,11 @@ class HistoGAN(torch.nn.Module):
                 if type(mod) in [torch.nn.Linear, torch.nn.Conv2d]:
                     torch.nn.init.kaiming_normal_(mod.weight)
 
-    def get_w_from_z(self, z):
-        with torch.no_grad():
-            w = self.latent_mapping(z)
-        return w
-
-    def gen_image_from_w(self, w, target_hist):
-        with torch.no_grad():
-            B = w.size(0)
-            fm = self.learned_const_inp.unsqueeze(0).repeat(B, 1, 1, 1)
-            for i, stylegan2_block in enumerate(self.stylegan2_blocks[:-1]):
-                fm, rgb = stylegan2_block(fm, w)
-                fm = self.upsample(fm)
-                if i == 0:
-                    rgb = self.upsample(rgb)
-                    rgb_sum = rgb
-                else:
-                    rgb_sum += rgb
-                    rgb_sum = self.upsample(rgb_sum)
-            hist_w  = self.hist_projection(target_hist.flatten(1))
-            _, rgb = self.stylegan2_blocks[-1](fm, hist_w)
-            rgb_sum += rgb
-        return rgb_sum
-
     def forward(self, z, target_hist, test=False):
-        # noise input z, size: B, latent_size
-        B = z.size(0)
-        w = self.latent_mapping(z)
-        fm = self.learned_const_inp.expand(B, -1, -1, -1)
-        for i, stylegan2_block in enumerate(self.stylegan2_blocks[:-1]):
-            fm, rgb = stylegan2_block(fm, w[:,i,:], test)
-            fm = self.upsample(fm)
-            if i == 0:
-                rgb = self.upsample(rgb)
-                rgb_sum = rgb
-            else:
-                rgb_sum += rgb
-                rgb_sum = self.upsample(rgb_sum)
-        hist_w  = self.hist_projection(target_hist.flatten(1))
-        _, rgb = self.stylegan2_blocks[-1](fm, hist_w, test)
-        rgb_sum += rgb
-        # w is returned to compute path length regularization
+        w = self.get_w_from_z(z)
+        rgb_sum = self.gen_image_from_w(w, target_hist, test)
         return rgb_sum, w 
+
 
     def get_w_from_z(self, z):
         w = self.latent_mapping(z)
@@ -471,21 +407,30 @@ class HistoGAN(torch.nn.Module):
 
     def gen_image_from_w(self, w, target_hist, test=False):
         B = w.size(0)
+        hist_w = self.hist_projection(target_hist.flatten(1)).unsqueeze(1).expand(-1,2,-1)
         fm = self.learned_const_inp.expand(B, -1, -1, -1)
-        for i, stylegan2_block in enumerate(self.stylegan2_blocks[:-1]):
+        for i, stylegan2_block in enumerate(self.stylegan2_blocks[:-2]):
             fm, rgb = stylegan2_block(fm, w[:,i,:], test)
             fm = self.upsample(fm)
             if i == 0:
                 rgb = self.upsample(rgb)
                 rgb_sum = rgb
-            elif i == len(self.stylegan2_blocks) -1:
-                rgb_sum += rgb
             else:
                 rgb_sum += rgb
                 rgb_sum = self.upsample(rgb_sum)
-        hist_w  = self.hist_projection(target_hist.flatten(1))
-        _, rgb = self.stylegan2_blocks[-1](fm, hist_w, test)
-        rgb_sum += rgb
+        
+        for i, stylegan2_block in enumerate(self.stylegan2_blocks[-2:]):
+            fm, rgb = stylegan2_block(fm, hist_w[:,i,:], test)
+            fm = self.upsample(fm)
+            if i == 0:
+                rgb = self.upsample(rgb)
+                rgb_sum = rgb
+            elif i == 1:
+                rgb_sum += rgb
+            else:
+                rgb_sum += rgb
+                rgb_sum = self.upsample(rgb_sum)       
+
         return rgb_sum
 
 
