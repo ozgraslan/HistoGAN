@@ -1,3 +1,6 @@
+""" This is the playground code. Modular and commented version of training is train.py
+"""
+
 # implement training loop 
 from locale import normalize
 from statistics import variance
@@ -169,57 +172,57 @@ for epoch in range(num_epochs):
         if break_flag: 
             break_flag=False
             break
-        for _ in range(update_disc): 
-            training_percent = 100*seen/len(dataset)
-            batch_data = next(dataloader)
-            if batch_data.size(0)==1:
-                seen += 1
-                break_flag = True
-                break
-            seen += batch_data.size(0)
-            batch_data = batch_data.to(device)
-            # Sample random Gaussian noise
-            z = torch.randn(batch_data.size(0), 512).to(device)
-            # Interpolate between target image histogram 
-            # to prevent overfitting to dataset images
-            # target_hist = None 
-            target_hist = random_interpolate_hists(batch_data)
-            # Generate fake images
-            fake_data, w = generator(z, target_hist)
-            # Detach fake data so no gradient accumalition 
-            # to generator while only training discriminator
-            fake_data = fake_data.detach()
-            
-            # Compute real probabilities computed by discriminator
-            fake_scores = discriminator(fake_data)
-            real_scores = discriminator(batch_data)
-            
-            # gradient_penalty1 = compute_gradient_penalty(fake_data, batch_data, discriminator)
-            # batch_data.requires_grad_()
-            # gradient_penalty2 = gradient_penalty(batch_data, real_scores)
-            d_loss = torch.nn.functional.relu(1+torch.mean(real_scores)) + torch.nn.functional.relu(1-torch.mean(fake_scores))
-            # real_loss = torch.mean(torch.nn.functional.softplus(-real_scores))/ acc_gradient_iter
-            # fake_loss = torch.mean(torch.nn.functional.softplus(fake_scores)) / acc_gradient_iter # torch.mean(fake_scores) /  acc_gradient_iter  #  
-            # d_loss = real_loss + fake_loss
-            cumulative_dloss += d_loss.detach().item()/update_disc
-            # d_loss = -torch.mean(real_scores) - 1 +torch.mean(fake_scores)
-            # print("Grad diffs",abs((gradient_penalty1*10 - gradient_penalty2)).max())
-            # in stylegan2 paper they argue applying regularization in every 16 iteration does not hurt perfrormance 
-            # if disc_step % 4 == 0: 
-            #     # r1 regulatization
-            #     # for autograd.grad to work input should also have requires_grad = True
-            #     batch_data_grad = batch_data.clone().detach().requires_grad_(True)
-            #     real_score_for_r1 = discriminator(batch_data_grad)
-            #     # gradients1 = torch.autograd.grad(outputs=real_score_for_r1, inputs=batch_data_grad, grad_outputs=torch.ones(real_score_for_r1.size()).to(device))[0]
-            #     # r1_reg = torch.mean(torch.sum(torch.square(gradients1.view(gradients1.size(0), -1)), dim=1))
-            #     # gp = r1_factor*r1_reg
-            #     gp = gradient_penalty(batch_data_grad, real_score_for_r1)
-            #     cum_gp = gp.item()
-            #     d_loss = d_loss + gp
-            # print(r1_reg.size())
-            # print((r1_reg-gradients1.norm(2, dim=1)))
-            d_loss = d_loss/update_disc
-            d_loss.backward()
+        # for _ in range(update_disc): 
+        training_percent = 100*seen/len(dataset)
+        batch_data = next(dataloader)
+        if batch_data.size(0)==1:
+            seen += 1
+            break_flag = True
+            break
+        seen += batch_data.size(0)
+        batch_data = batch_data.to(device)
+        # Sample random Gaussian noise
+        z = torch.randn(batch_data.size(0), 512).to(device)
+        # Interpolate between target image histogram 
+        # to prevent overfitting to dataset images
+        # target_hist = None 
+        target_hist = random_interpolate_hists(batch_data)
+        # Generate fake images
+        fake_data, w = generator(z, target_hist)
+        # Detach fake data so no gradient accumalition 
+        # to generator while only training discriminator
+        fake_data = fake_data.detach()
+        
+        # Compute real probabilities computed by discriminator
+        fake_scores = discriminator(fake_data)
+        real_scores = discriminator(batch_data)
+        
+        # gradient_penalty1 = compute_gradient_penalty(fake_data, batch_data, discriminator)
+        # batch_data.requires_grad_()
+        # gradient_penalty2 = gradient_penalty(batch_data, real_scores)
+        # d_loss = torch.nn.functional.relu(1+torch.mean(real_scores)) + torch.nn.functional.relu(1-torch.mean(fake_scores))
+        real_loss = torch.mean(torch.nn.functional.softplus(-real_scores))/ acc_gradient_iter
+        fake_loss = torch.mean(torch.nn.functional.softplus(fake_scores)) / acc_gradient_iter # torch.mean(fake_scores) /  acc_gradient_iter  #  
+        d_loss = real_loss + fake_loss
+        cumulative_dloss += d_loss.detach().item()/update_disc
+        # d_loss = -torch.mean(real_scores) - 1 +torch.mean(fake_scores)
+        # print("Grad diffs",abs((gradient_penalty1*10 - gradient_penalty2)).max())
+        # in stylegan2 paper they argue applying regularization in every 16 iteration does not hurt perfrormance 
+        if disc_step % 4 == 0: 
+            # r1 regulatization
+            # for autograd.grad to work input should also have requires_grad = True
+            batch_data_grad = batch_data.clone().detach().requires_grad_(True)
+            real_score_for_r1 = discriminator(batch_data_grad)
+            # gradients1 = torch.autograd.grad(outputs=real_score_for_r1, inputs=batch_data_grad, grad_outputs=torch.ones(real_score_for_r1.size()).to(device))[0]
+            # r1_reg = torch.mean(torch.sum(torch.square(gradients1.view(gradients1.size(0), -1)), dim=1))
+            # gp = r1_factor*r1_reg
+            gp = gradient_penalty(batch_data_grad, real_score_for_r1)
+            cum_gp = gp.item()
+            d_loss = d_loss + gp
+        # print(r1_reg.size())
+        # print((r1_reg-gradients1.norm(2, dim=1)))
+        d_loss = d_loss/update_disc
+        d_loss.backward()
         disc_optim.step()
 
         # print("%", training_percent, " Disc loss:", cumulative_dloss)
@@ -230,27 +233,27 @@ for epoch in range(num_epochs):
         gene_optim.zero_grad()
         cumulative_gloss = 0.0
         totalg = None
-        for _ in range(update_disc):
-            z = torch.randn(batch_data.size(0), 512).to(device)
-            fake_data, w = generator(z, target_hist) 
-            # fake_data = torch.clamp(fake_data, -256, 256)
-            
-            disc_score = discriminator(fake_data)
-            # g_loss = non_sat_generator_loss(fake_data, disc_score, target_hist) 
-            # g_loss = torch.mean(disc_score)
-            g_loss = non_sat_generator_loss(fake_data, disc_score, target_hist)
-            # if (disc_step+1) % 16 == 0:
-            #     pl_noise = torch.randn_like(fake_data).to(device) / np.sqrt(fake_data.shape[2]*fake_data.shape[3])
-            #     gradients2 = torch.autograd.grad(outputs=fake_data*pl_noise, inputs=w, grad_outputs=torch.ones(fake_data.size()).to(device), retain_graph=True)[0]
-            #     j_norm  = torch.sqrt(torch.sum(torch.square(gradients2.view(gradients2.size(0), -1)),dim=1))
-            #     if target_scale is None:
-            #         target_scale = j_norm
-            #     plr = torch.mean(torch.square(j_norm - target_scale))
-            #     g_loss = g_loss + plr * plr_factor
-            #     target_scale = (1-ema_decay_coeff)* target_scale + ema_decay_coeff * j_norm
-            g_loss = g_loss/update_disc
-            cumulative_gloss += g_loss.detach().item()/update_disc
-            g_loss.backward()
+        # for _ in range(update_disc):
+        z = torch.randn(batch_data.size(0), 512).to(device)
+        fake_data, w = generator(z, target_hist) 
+        # fake_data = torch.clamp(fake_data, -256, 256)
+        
+        disc_score = discriminator(fake_data)
+        # g_loss = non_sat_generator_loss(fake_data, disc_score, target_hist) 
+        # g_loss = torch.mean(disc_score)
+        g_loss = non_sat_generator_loss(fake_data, disc_score, target_hist)
+        if (disc_step+1) % 16 == 0:
+            pl_noise = torch.randn_like(fake_data).to(device) / np.sqrt(fake_data.shape[2]*fake_data.shape[3])
+            gradients2 = torch.autograd.grad(outputs=fake_data*pl_noise, inputs=w, grad_outputs=torch.ones(fake_data.size()).to(device), retain_graph=True)[0]
+            j_norm  = torch.sqrt(torch.sum(torch.square(gradients2.view(gradients2.size(0), -1)),dim=1))
+            if target_scale is None:
+                target_scale = j_norm
+            plr = torch.mean(torch.square(j_norm - target_scale))
+            g_loss = g_loss + plr * plr_factor
+            target_scale = (1-ema_decay_coeff)* target_scale + ema_decay_coeff * j_norm
+        g_loss = g_loss/update_disc
+        cumulative_gloss += g_loss.detach().item()/update_disc
+        g_loss.backward()
         gene_optim.step()
         print("%", training_percent, "G:", cumulative_gloss, "D:", cumulative_dloss, "GP:", cum_gp)
 

@@ -7,13 +7,13 @@ from torchvision.utils import save_image
 from torch_optimizer import DiffGrad
 from data import AnimeFacesDataset
 from model import Discriminator, HistoGAN
-from loss import compute_gradient_penalty, pl_reg, gp_only_real, wgan_gp_disc_loss, wgan_gp_gen_loss
+from loss import compute_gradient_penalty, pl_reg, gp_only_real, wgan_gp_disc_loss, wgan_gp_gen_loss, hellinger_dist_loss
 from utils import random_interpolate_hists
 import os
 
 import wandb
 config = dict(
-    num_epochs = 10,
+    num_epochs = 20,
     batch_size = 16,
     acc_gradient_total = 16,
     r1_factor = 10,
@@ -23,27 +23,27 @@ config = dict(
     save_iter = 400,
     image_res = 64,
     network_capacity = 16,
-    latent_dim = 64,
+    latent_dim = 512,
     bin_size = 64,
     learning_rate = 0.0002,
     mapping_layer_num = 8,
     mixing_prob = 0.9,
     use_plr = True,
     use_r1r = True,
-    kaiming_init=False,
+    kaiming_init=True,
     use_eqlr = False,
     use_spec_norm = False,
     disc_arch= "ResBlock",
     gen_arch = "InputModDemod",
-    optim="DiffGrad",
+    optim="Adam",
     loss_type="wasser")
 
 # wandb.init(project="histogan", 
 #            entity="metu-kalfa",
 #            config = config)
 
-torch.autograd.set_detect_anomaly(True)
-torch.backends.cudnn.benchmark = True
+# torch.autograd.set_detect_anomaly(True)
+# torch.backends.cudnn.benchmark = True
 
 # parameters
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -123,8 +123,8 @@ generator=generator.to(device)
 
 # Initialize optimizers 
 if optim == "Adam":
-    gene_optim = torch.optim.Adam(generator.parameters(), lr=learning_rate)
-    disc_optim = torch.optim.Adam(discriminator.parameters(), lr=learning_rate)
+    gene_optim = torch.optim.Adam(generator.parameters(), lr=learning_rate, betas=(0.5, 0.99))
+    disc_optim = torch.optim.Adam(discriminator.parameters(), lr=learning_rate, betas=(0.5, 0.99))
 elif optim == "DiffGrad":
     gene_optim = DiffGrad(generator.parameters(), lr=learning_rate)
     disc_optim = DiffGrad(discriminator.parameters(), lr=learning_rate)
@@ -191,6 +191,8 @@ def train_discriminator(generator, discriminator, disc_optim, chunk_data, batch_
     hist_list = []
     disc_optim.zero_grad()
     total_disc_loss = 0
+    total_real_loss = 0
+    total_fake_loss = 0
     total_r1_loss = 0
     for index in range(chunk_data.size(0)//batch_size):
         batch_data = chunk_data[index*batch_size:(index+1)*batch_size]
@@ -203,7 +205,6 @@ def train_discriminator(generator, discriminator, disc_optim, chunk_data, batch_
         fake_data = fake_data.detach()
         fake_scores = discriminator(fake_data)
         real_scores = discriminator(batch_data)
-        # gradient_penalty = compute_gradient_penalty(fake_data, batch_data, discriminator)
         if loss_type == "hinge":
             real_loss = torch.mean(torch.nn.functional.relu(1-real_scores))    
             fake_loss = torch.mean(torch.nn.functional.relu(1+ fake_scores)) 
@@ -217,6 +218,8 @@ def train_discriminator(generator, discriminator, disc_optim, chunk_data, batch_
 
         disc_loss =  real_loss + fake_loss  # torch.mean(torch.nn.functional.relu(1 + real_scores) + torch.nn.functional.relu(1 - fake_scores)) #
         total_disc_loss += disc_loss.item()
+        total_fake_loss += fake_loss.item()
+        total_real_loss += real_loss.item()
         r1_loss = 0
         if use_r1r and iter % r1_update_iter == 0:
             r1_loss =  gp_only_real(batch_data, real_scores, r1_factor)/ acc_gradient_iter

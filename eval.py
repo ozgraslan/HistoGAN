@@ -6,6 +6,9 @@ from torchvision import transforms
 from torch.utils.data import DataLoader
 from utils import histogram_feature_v2
 from loss import hellinger_dist_loss
+from model import HistoGAN, HistoGANAda
+from torchvision.utils import save_image
+
 
 def random_interpolate_hists(batch_data, device="cpu"):
     B = batch_data.size(0)
@@ -21,8 +24,8 @@ def fake_generator(batch_size):
     return torch.randint(0, 255, (batch_size, 3, 256, 256))
 
 # Device "cpu" is advised by torch metrics
-def fid_scores(generator, test_path, fid_batch=16, device="cpu"):
-    transform = transforms.Compose([transforms.Resize((256,256))])
+def fid_scores(generator, test_path, fid_batch=8, device="cpu"):
+    transform = transforms.Compose([transforms.Resize((64,64))])
     dataset = AnimeFacesDataset(test_path, transform, device)
     dataloader = DataLoader(dataset, batch_size=fid_batch, shuffle=True)
     fid = FrechetInceptionDistance(feature=2048, reset_real_features=True)
@@ -32,10 +35,11 @@ def fid_scores(generator, test_path, fid_batch=16, device="cpu"):
     for batch_data in dataloader:
         z = torch.rand(batch_data.size(0), 512).to(device)
         target_hist = random_interpolate_hists(batch_data)
-        fake_data = fake_generator(fid_batch)
+        fake_data, _ = generator(z, target_hist, test=True)
+        batch_data = batch_data*255
+        fake_data = fake_data*255
         batch_data = batch_data.byte()  # Convert to uint8 for fid
         fake_data = fake_data.byte()
-        #  fake_data = generator(z, target_hist)
         fid.update(batch_data, real=True)
         fid.update(fake_data, real=False)
         batch_fid = fid.compute()
@@ -55,13 +59,12 @@ def hist_uv_kl(generator, test_path, kl_batch=64, device="cpu"):
     for batch_data in dataloader:
         z = torch.rand(batch_data.size(0), 512).to(device)
         target_hist = random_interpolate_hists(batch_data)
-        fake_data = fake_generator(kl_batch)
+        fake_data, _ = generator(z, target_hist, test=True)
         #  fake_data = generator(z, target_hist)
         fake_hist = histogram_feature_v2(fake_data, device=device)
         print(torch.mean(fake_hist), torch.norm(fake_hist), torch.max(fake_hist), torch.min(fake_hist))
         kl = torch.nn.functional.kl_div(fake_hist, target_hist)
-        kls.append(kl)       
-        print(kl) 
+        kls.append(kl.detach().numpy())       
         num_generated += kl_batch
         if num_generated > 10000: break
     
@@ -82,14 +85,15 @@ def hist_uv_h(generator, test_path, h_batch=64, device="cpu"):
         #  fake_data = generator(z, target_hist)
         h = hellinger_dist_loss(fake_data, target_hist, device=device)
         hs.append(h)       
-        print(h) 
         num_generated += h_batch
         if num_generated > 10000: break
     
     return hs
 
 def main():
-    # generate two slightly overlapping image intensity distributions
-    # fid_scores(None, "images", fid_batch=8)
-    hist_uv_h(None, "images")
+    generator = HistoGANAda()
+    # generator.load_state_dict(torch.load("model2/generator_15.pt"))
+    fids = fid_scores(generator, "images", device="cpu")
+    print(fids)
+
 if __name__=="__main__": main()

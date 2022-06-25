@@ -226,9 +226,9 @@ class HistoGANAda(torch.nn.Module):
                                    torch.nn.LeakyReLU(0.2, True)])
         hist_projection_list = []
         hist_projection_list.extend([torch.nn.Linear(h*h*3, 1024), 
-                                    torch.nn.LeakyReLU(0.2),
+                                    torch.nn.LeakyReLU(0.2, True),
                                     torch.nn.Linear(1024, 512),
-                                    torch.nn.LeakyReLU(0.2)]) 
+                                    torch.nn.LeakyReLU(0.2)], True) 
         for i in range(6):
             if i == 5:
                 latent_mapping_list.append(torch.nn.Linear(512, 512))
@@ -437,8 +437,6 @@ class HistoGAN(torch.nn.Module):
                 if i == 0:
                     rgb = self.upsample(rgb)
                     rgb_sum = rgb
-                elif i == len(self.stylegan2_blocks) -1:
-                    rgb_sum += rgb
                 else:
                     rgb_sum += rgb
                     rgb_sum = self.upsample(rgb_sum)
@@ -458,8 +456,6 @@ class HistoGAN(torch.nn.Module):
             if i == 0:
                 rgb = self.upsample(rgb)
                 rgb_sum = rgb
-            elif i == len(self.stylegan2_blocks)-1:
-                rgb_sum += rgb
             else:
                 rgb_sum += rgb
                 rgb_sum = self.upsample(rgb_sum)
