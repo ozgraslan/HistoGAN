@@ -198,7 +198,10 @@ class StyleGANBlock(torch.nn.Module):
         self.conv = torch.nn.Conv2d(input_channel_size, output_channel_size, kernel_size=3, padding="same")
         torch.nn.init.kaiming_normal_(self.conv.weight) 
         
-    def forward(self, fm, w):
+    def forward(self, fm, w, test=False):
+        if test: device = "cpu"
+        else: device = "cuda"
+
         batch, channel, height, width = fm.size()  
         noise_1 = torch.randn((batch, 1, height, width)).to(device)
         noise_2 = torch.randn((batch, 1, height, width)).to(device)
@@ -212,6 +215,8 @@ class StyleGANBlock(torch.nn.Module):
         return out
 
 class HistoGANAda(torch.nn.Module):
+    """ StyleGan version 1. Implemented to investigate StyleGan 2 implementation errors.
+    """
     def __init__(self, network_capacity=16, h=64, channel_sizes = [1024, 512, 512, 512, 256, 128, 64]):
         super().__init__()
         latent_mapping_list = []
@@ -225,14 +230,14 @@ class HistoGANAda(torch.nn.Module):
                                     torch.nn.Linear(1024, 512),
                                     torch.nn.LeakyReLU(0.2)]) 
         for i in range(6):
-            # if i == 5:
-            #     latent_mapping_list.append(torch.nn.Linear(512, 512))
-            #     hist_projection_list.append(torch.nn.Linear(512, 512))
-            # else:
-            latent_mapping_list.extend([torch.nn.Linear(512, 512),
-                                        torch.nn.LeakyReLU(0.2, True)])
-            hist_projection_list.extend([torch.nn.Linear(512, 512),
-                                        torch.nn.LeakyReLU(0.2, True)])
+            if i == 5:
+                latent_mapping_list.append(torch.nn.Linear(512, 512))
+                hist_projection_list.append(torch.nn.Linear(512, 512))
+            else:
+                latent_mapping_list.extend([torch.nn.Linear(512, 512),
+                                            torch.nn.LeakyReLU(0.2, True)])
+                hist_projection_list.extend([torch.nn.Linear(512, 512),
+                                            torch.nn.LeakyReLU(0.2, True)])
 
         self.latent_mapping = torch.nn.Sequential(*latent_mapping_list)
 
@@ -269,23 +274,17 @@ class HistoGANAda(torch.nn.Module):
             rgb = self.to_rgb(fm)
         return rgb
 
-    def forward(self, z, target_hist):
+    def forward(self, z, target_hist, test=False):
         # noise input z, size: B, 512
         B = z.size(0)
         w = self.latent_mapping(z)
         fm = self.learned_const_inp.unsqueeze(0).repeat(B, 1, 1, 1)
-        # print(fm.mean())
-        # for i, stylegan2_block in enumerate(self.stylegan2_blocks):
         for i, stylegan2_block in enumerate(self.stylegan2_blocks[:-1]):
-            fm = stylegan2_block(fm, w)
+            fm = stylegan2_block(fm, w, test)
             fm = self.upsample(fm)
-            # print(rgb_sum.mean(), rgb_sum.var())
         hist_w  = self.hist_projection(target_hist.flatten(1))
-        fm = self.stylegan2_blocks[-1](fm, hist_w)
-        # print(fm.mean())
+        fm = self.stylegan2_blocks[-1](fm, hist_w, test)
         rgb = self.to_rgb(fm)
-        # print(rgb_sum.mean(), rgb_sum.var())
-        # print("----------------------------")
         # w is returned to compute path length regularization
         return rgb, w 
 
@@ -310,7 +309,7 @@ class StyleGAN2Block(torch.nn.Module):
         self.lrelu = torch.nn.LeakyReLU(0.2)
 
 
-    def forward(self, fm, w):
+    def forward(self, fm, w, test=False):
         # fm: input feature map (B, C, H, W), C = channel1
         # latent vector w, w = f(z), (B, 512)
         # in figure noise vectors are outside the block
@@ -318,6 +317,10 @@ class StyleGAN2Block(torch.nn.Module):
         # in style gan2 paper each noise is tought as a N(0,I) image 
         # with same height and with as the feature map
         # print("noise scaling factors:",self.noise_scaling_factor_1, self.noise_scaling_factor_2)
+
+        if test: device="cpu"
+        else: device = "cuda"
+
         batch, channel, height, width = fm.size()  
         noise_1 = torch.randn((batch, 1, height, width)).to(device)
         noise_2 = torch.randn((batch, 1, height, width)).to(device)
@@ -355,14 +358,15 @@ class StyleGAN2Block2(torch.nn.Module):
         self.lrelu = torch.nn.LeakyReLU(0.2)
 
 
-    def forward(self, fm, w):
+    def forward(self, fm, w, test=False):
         # fm: input feature map (B, C, H, W), C = channel1
         # latent vector w, w = f(z), (B, 512)
         # in figure noise vectors are outside the block
         # but it does no matter since they are independent and random
         # in style gan2 paper each noise is tought as a N(0,I) image 
         # with same height and with as the feature map
-        # print("noise scaling factors:",self.noise_scaling_factor_1, self.noise_scaling_factor_2)
+        if test: device = "cpu"
+        else: device = "cuda"
         batch, channel, height, width = fm.size()  
         noise_1 = torch.randn((batch, 1, height, width)).to(device)
         noise_2 = torch.randn((batch, 1, height, width)).to(device)
@@ -386,22 +390,22 @@ class HistoGAN(torch.nn.Module):
     def __init__(self, network_capacity=16, latent_size=512, h=64, image_res=256, mapping_layer_num=8, kaiming_init=True, use_eqlr=False):
         super().__init__()
         latent_mapping_list = []
-        # hist_projection_list = []
-        # hist_projection_inp = h*h*3
+        hist_projection_list = []
+        hist_projection_inp = h*h*3
         num_gen_layers = int(np.log2(image_res)-1)
         for i in range(mapping_layer_num):
-            # if i == (mapping_layer_num-1):
-            #     latent_mapping_list.append(torch.nn.Linear(latent_size, latent_size))
-                #hist_projection_list.append(LinearLayer(latent_size, latent_size, 0.01, kaiming_init=True, use_eqlr=False))
-            # else:
-            latent_mapping_list.extend([torch.nn.Linear(latent_size, latent_size),
-                                        torch.nn.LeakyReLU(0.2, inplace=True)])
+            if i == (mapping_layer_num-1):
+                latent_mapping_list.append(torch.nn.Linear(latent_size, latent_size))
+                hist_projection_list.append(torch.nn.Linear(latent_size, latent_size))
+            else:
+                latent_mapping_list.extend([torch.nn.Linear(latent_size, latent_size),
+                                            torch.nn.LeakyReLU(0.2, inplace=True)])
 
-                #hist_projection_list.extend([LinearLayer(hist_projection_inp, latent_size, 0.01, kaiming_init=True, use_eqlr=False), torch.nn.LeakyReLU(0.2)])
-                #hist_projection_inp  = latent_size
+                hist_projection_list.extend([torch.nn.Linear(hist_projection_inp, latent_size), torch.nn.LeakyReLU(0.2)])
+                hist_projection_inp  = latent_size
 
         self.latent_mapping = torch.nn.Sequential(*latent_mapping_list)
-        #self.hist_projection = torch.nn.Sequential(*hist_projection_list)
+        self.hist_projection = torch.nn.Sequential(*hist_projection_list)
         self.learned_const_inp = torch.nn.Parameter(torch.randn(4*network_capacity, 4, 4))
         self.upsample = torch.nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False)
         stylegan2_block_list = [] 
@@ -443,13 +447,13 @@ class HistoGAN(torch.nn.Module):
             rgb_sum += rgb
         return rgb_sum
 
-    def forward(self, z, target_hist):
+    def forward(self, z, target_hist, test=False):
         # noise input z, size: B, latent_size
         B = z.size(0)
         w = self.latent_mapping(z)
         fm = self.learned_const_inp.expand(B, -1, -1, -1)
-        for i, stylegan2_block in enumerate(self.stylegan2_blocks): # [:-1]
-            fm, rgb = stylegan2_block(fm, w[:,i,:])
+        for i, stylegan2_block in enumerate(self.stylegan2_blocks[:-1]):
+            fm, rgb = stylegan2_block(fm, w[:,i,:], test)
             fm = self.upsample(fm)
             if i == 0:
                 rgb = self.upsample(rgb)
@@ -459,12 +463,9 @@ class HistoGAN(torch.nn.Module):
             else:
                 rgb_sum += rgb
                 rgb_sum = self.upsample(rgb_sum)
-            # print(rgb_sum.mean(), rgb_sum.var())
         hist_w  = self.hist_projection(target_hist.flatten(1))
-        _, rgb = self.stylegan2_blocks[-1](fm, hist_w)
+        _, rgb = self.stylegan2_blocks[-1](fm, hist_w, test)
         rgb_sum += rgb
-        # print(rgb_sum.mean(), rgb_sum.var())
-        # print("----------------------------")
         # w is returned to compute path length regularization
         return rgb_sum, w 
 
@@ -472,12 +473,11 @@ class HistoGAN(torch.nn.Module):
         w = self.latent_mapping(z)
         return w
 
-    def gen_image_from_w(self, w, target_hist):
+    def gen_image_from_w(self, w, target_hist, test=False):
         B = w.size(0)
-        # print(w.size())
         fm = self.learned_const_inp.expand(B, -1, -1, -1)
-        for i, stylegan2_block in enumerate(self.stylegan2_blocks): # [:-1]
-            fm, rgb = stylegan2_block(fm, w[:,i,:])
+        for i, stylegan2_block in enumerate(self.stylegan2_blocks[:-1]):
+            fm, rgb = stylegan2_block(fm, w[:,i,:], test)
             fm = self.upsample(fm)
             if i == 0:
                 rgb = self.upsample(rgb)
@@ -487,9 +487,9 @@ class HistoGAN(torch.nn.Module):
             else:
                 rgb_sum += rgb
                 rgb_sum = self.upsample(rgb_sum)
-        # hist_w  = self.hist_projection(target_hist.flatten(1))
-        # _, rgb = self.stylegan2_blocks[-1](fm, hist_w)
-        # rgb_sum += rgb
+        hist_w  = self.hist_projection(target_hist.flatten(1))
+        _, rgb = self.stylegan2_blocks[-1](fm, hist_w, test)
+        rgb_sum += rgb
         return rgb_sum
 
 

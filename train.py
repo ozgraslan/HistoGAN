@@ -38,16 +38,16 @@ config = dict(
     optim="DiffGrad",
     loss_type="wasser")
 
-wandb.init(project="histogan", 
-           entity="metu-kalfa",
-           config = config)
+# wandb.init(project="histogan", 
+#            entity="metu-kalfa",
+#            config = config)
 
 torch.autograd.set_detect_anomaly(True)
 torch.backends.cudnn.benchmark = True
 
 # parameters
 device = "cuda" if torch.cuda.is_available() else "cpu"
-real_image_dir = "images/anime_face"
+real_image_dir = "images"
 # image resolution to generate
 image_res = config["image_res"]
 transform = transforms.Compose(
@@ -59,7 +59,7 @@ batch_size = config["batch_size"]
 num_epochs = config["num_epochs"]
 # after how many gradient accumulation to optimize parameters
 acc_gradient_total = config["acc_gradient_total"]
-acc_gradient_iter = acc_gradient_total //batch_size
+acc_gradient_iter = acc_gradient_total // batch_size
 # scalar of R1 regularization
 r1_factor = config["r1_factor"]
 r1_update_iter = config["r1_update_iter"]
@@ -147,61 +147,59 @@ def mixing_noise():
     return z
 
 
-def train_generator(generator, discriminator, gene_optim, batch_size, iter): # hist_list
+def train_generator(generator, discriminator, gene_optim, batch_size, iter, hist_list):
     global target_scale
     total_gene_loss = 0
     total_plr_loss = 0
     gene_optim.zero_grad()
-    # for target_hist in hist_list:
-    for _ in range(acc_gradient_iter):
-        z = mixing_noise().to(device) # torch.randn(batch_size, latent_dim)
-        fake_data, w = generator(z, None) # target_hist
-        disc_score = discriminator(fake_data)
-        if loss_type in ["wasser", "hinge"]:
-            g_loss = -torch.mean(disc_score) / acc_gradient_iter
-        elif loss_type == "softplus":
-            g_loss = torch.mean(torch.nn.functional.softplus(-disc_score)) / acc_gradient_iter      
-        total_gene_loss += g_loss.item()
-        pl_loss = 0 
-        if use_plr and (iter+1) % plr_update_iter == 0:
-            std = 0.1 / (w.std(dim=0, keepdim=True) + 1e-8)
-            w_changed = w + torch.randn_like(w, device=device) / (std + 1e-8)
-            changed_data = generator.gen_image_from_w(w_changed, None)
-            pl_lengths = ((changed_data - fake_data) ** 2).mean(dim=(1, 2, 3))
-            avg_pl_length = torch.mean(pl_lengths).item()
-            pl_loss = torch.mean(torch.square(pl_lengths - target_scale))
-            # plr, target_scale = pl_reg(generator, None, target_scale, plr_factor, decay_coeff) # target_hist[0].unsqueeze(0) 
-            total_plr_loss += pl_loss.item()
+    for target_hist in hist_list:
+        for _ in range(acc_gradient_iter):
+            z = mixing_noise().to(device) # torch.randn(batch_size, latent_dim)
+            fake_data, w = generator(z, target_hist) # target_hist
+            disc_score = discriminator(fake_data)
+            if loss_type in ["wasser", "hinge"]:
+                g_loss = -torch.mean(disc_score) / acc_gradient_iter
+            elif loss_type == "softplus":
+                g_loss = torch.mean(torch.nn.functional.softplus(-disc_score)) / acc_gradient_iter      
+            total_gene_loss += g_loss.item()
+            pl_loss = 0 
+            if use_plr and (iter+1) % plr_update_iter == 0:
+                std = 0.1 / (w.std(dim=0, keepdim=True) + 1e-8)
+                w_changed = w + torch.randn_like(w, device=device) / (std + 1e-8)
+                changed_data = generator.gen_image_from_w(w_changed, target_hist)
+                pl_lengths = ((changed_data - fake_data) ** 2).mean(dim=(1, 2, 3))
+                avg_pl_length = torch.mean(pl_lengths).item()
+                pl_loss = torch.mean(torch.square(pl_lengths - target_scale))
+                # plr, target_scale = pl_reg(generator, None, target_scale, plr_factor, decay_coeff) # target_hist[0].unsqueeze(0) 
+                total_plr_loss += pl_loss.item()
 
-        g_loss += pl_loss
-        g_loss.backward()
+            g_loss += pl_loss
+            g_loss.backward()
+        gene_optim.step()
+        gene_optim.zero_grad()
+    # if use_plr and (iter+1) % plr_update_iter == 0:
+    #     target_scale = (1-decay_coeff)* target_scale + decay_coeff * avg_pl_length
+    #     wandb.log({"pl_loss": total_plr_loss}, step=iter)
 
-    if use_plr and (iter+1) % plr_update_iter == 0:
-        target_scale = (1-decay_coeff)* target_scale + decay_coeff * avg_pl_length
-        wandb.log({"pl_loss": total_plr_loss}, step=iter)
 
-
-    if iter % log_interval == 0:
-        wandb.log({"gen_loss" : total_gene_loss}, step=iter)
+    # if iter % log_interval == 0:
+    #     wandb.log({"gen_loss" : total_gene_loss}, step=iter)
     
-
-    gene_optim.step()
-    gene_optim.zero_grad()
     del g_loss, total_gene_loss, total_plr_loss
 
 def train_discriminator(generator, discriminator, disc_optim, chunk_data, batch_size, iter):
-    #hist_list = []
+    hist_list = []
     disc_optim.zero_grad()
     total_disc_loss = 0
     total_r1_loss = 0
     for index in range(chunk_data.size(0)//batch_size):
         batch_data = chunk_data[index*batch_size:(index+1)*batch_size]
         batch_data.requires_grad_()
-        # batch_data = batch_data.to(device)
-        #target_hist = random_interpolate_hists(batch_data)
-        #hist_list.append(target_hist.clone())
+        batch_data = batch_data.to(device)
+        target_hist = random_interpolate_hists(batch_data)
+        hist_list.append(target_hist.clone())
         z = mixing_noise().to(device) # torch.randn(batch_size, latent_dim)
-        fake_data, _ = generator(z, None) #target_hist
+        fake_data, _ = generator(z, target_hist) #target_hist
         fake_data = fake_data.detach()
         fake_scores = discriminator(fake_data)
         real_scores = discriminator(batch_data)
@@ -228,16 +226,16 @@ def train_discriminator(generator, discriminator, disc_optim, chunk_data, batch_
         real_loss.backward()
         fake_loss.backward()
 
-    if iter % log_interval == 0:
-        wandb.log({"disc_loss" : total_disc_loss},step=iter)
-        if use_r1r and iter % r1_update_iter == 0:
-           wandb.log({"r1_loss" : total_r1_loss},step=iter)
+    # if iter % log_interval == 0:
+    #     wandb.log({"disc_loss" : total_disc_loss},step=iter)
+    #     if use_r1r and iter % r1_update_iter == 0:
+    #        wandb.log({"r1_loss" : total_r1_loss},step=iter)
 
 
     disc_optim.step()
     disc_optim.zero_grad()
     del disc_loss, total_disc_loss, total_r1_loss
-    #return hist_list
+    return hist_list
 
 
 # # Traning loop without gradient accumulation
@@ -251,17 +249,17 @@ for epoch in range(0, num_epochs):
         
         # print("Epoch",epoch, " Training %", training_percent)
         total_iter += 1
-        train_discriminator(generator, discriminator, disc_optim, chunk_data, batch_size, total_iter) # hist_list = 
-        train_generator(generator, discriminator, gene_optim, batch_size, total_iter)
+        hist_list = train_discriminator(generator, discriminator, disc_optim, chunk_data, batch_size, total_iter) # 
+        train_generator(generator, discriminator, gene_optim, batch_size, total_iter, hist_list)
 
         if iter % log_interval == 0:
             # wandb.log({"training_percent": training_percent},step=iter)
             # torch.clamp(truncation_trick(generator, latent_dim, batch_size), 0, 1) # hist_list[-1]
             z = mixing_noise().to(device)
-            fake_data, _ = generator(z, None)
+            fake_data, _ = generator(z, hist_list[-1])
             # print(type(fake_data), fake_data)
             save_image(fake_data, os.path.join(fake_image_dir, "fake_{}_{}_norm.png".format(epoch, iter)), normalize=True)
-            save_image(chunk_data, os.path.join(fake_image_dir, "real_{}_{}_norm.png".format(epoch, iter)), normalize=True)
+            # save_image(chunk_data, os.path.join(fake_image_dir, "real_{}_{}_norm.png".format(epoch, iter)), normalize=True)
 
             # save_image(torch.clamp(fake_data, 0, 1), os.path.join(fake_image_dir, "fake_{}_{}_clamp.png".format(epoch, iter)))
 
