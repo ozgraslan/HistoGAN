@@ -16,7 +16,6 @@ class AnimeFacesDataset(Dataset):
                 image = read_image(path).to(device)
                 image = self.transform(image/255.0) 
                 self.image_tensor_list.append(image)
-                # if ind==63: return 
 
     def __len__(self):
         return len(self.image_tensor_list)

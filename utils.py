@@ -203,3 +203,18 @@ def random_interpolate_hists(batch_data):
     second_hist = histogram_feature_v2(second_images)
     hist_t = delta*first_hist + (1-delta)*second_hist
     return hist_t
+
+def mixing_noise(batch_size, num_gen_layers, latent_dim, mixing_prob):
+    if torch.rand((1,)) < mixing_prob:
+        ri = torch.randint(1, num_gen_layers, (1,)).item()
+        z = torch.cat([torch.randn((batch_size, 1, latent_dim)).expand(-1,ri,-1), torch.randn((batch_size, 1, latent_dim)).expand(-1,num_gen_layers-ri,-1)], dim=1)
+    else:
+        z = torch.randn((batch_size, num_gen_layers, latent_dim))
+    return z
+
+def truncation_trick(generator, target_histogram, latent_size, batch_size, device): 
+    z = torch.randn((2000, latent_size)).to(device)
+    w = generator.get_w_from_z(z)
+    w_mean = torch.mean(w, dim=0, keepdim=True)
+    fake_imgs = generator.gen_image_from_w(w_mean.repeat(batch_size,1), target_histogram) 
+    return fake_imgs
